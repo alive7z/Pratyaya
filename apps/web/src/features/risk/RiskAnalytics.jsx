@@ -8,16 +8,17 @@ import {
   CardContent,
 } from "../../components/ui/Card.jsx";
 import { Button } from "../../components/ui/Button.jsx";
-import { PieChart } from "lucide-react";
 import {
+  BarChart,
+  Bar,
+  PieChart,
+  Pie,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  Bar,
   Cell,
-  Pie,
   Legend,
 } from "recharts";
 
@@ -201,13 +202,12 @@ export function RiskAnalytics() {
           </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={300}>
-              <PieChart
-                data={Object.entries(decisionCounts).map(([name, value]) => ({
-                  name,
-                  value,
-                }))}
-              >
+              <PieChart>
                 <Pie
+                  data={Object.entries(decisionCounts).map(([name, value]) => ({
+                    name,
+                    value,
+                  }))}
                   dataKey="value"
                   nameKey="name"
                   cx="50%"
