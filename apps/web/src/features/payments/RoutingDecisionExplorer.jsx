@@ -1,4 +1,5 @@
-import { useQuery, useState } from "react";
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../../app/AuthContext.jsx";
 import { apiClient } from "../../lib/apiClient.js";
 import {
@@ -17,7 +18,7 @@ import {
 } from "../../components/ui/Select.jsx";
 import { Input } from "../../components/ui/Input.jsx";
 import { Button } from "../../components/ui/Button.jsx";
-import { Loader2, Search, Filter, Eye, AlertTriangle } from "lucide-react";
+import { Loader2, Search, Filter, Eye, AlertTriangle, X } from "lucide-react";
 
 const STRATEGY_LABELS = {
   RELIABILITY_FIRST: "Reliability First",
@@ -42,6 +43,7 @@ export function RoutingDecisionExplorer() {
     providerId: "",
     strategy: "",
     reason: "",
+    paymentId: "",
     from: "",
     to: "",
     limit: 50,
@@ -69,11 +71,21 @@ export function RoutingDecisionExplorer() {
     setFilters((prev) => ({ ...prev, [key]: value }));
   };
 
+  const hasActiveFilters = Boolean(
+    filters.providerId ||
+    filters.strategy ||
+    filters.reason ||
+    filters.paymentId ||
+    filters.from ||
+    filters.to,
+  );
+
   const clearFilters = () => {
     setFilters({
       providerId: "",
       strategy: "",
       reason: "",
+      paymentId: "",
       from: "",
       to: "",
       limit: 50,
@@ -117,7 +129,7 @@ export function RoutingDecisionExplorer() {
           <Button
             variant="outline"
             onClick={clearFilters}
-            disabled={!Object.values(filters).some(Boolean)}
+            disabled={!hasActiveFilters}
           >
             <Filter className="h-4 w-4 mr-1" />
             Clear Filters
@@ -282,68 +294,71 @@ export function RoutingDecisionExplorer() {
 
       {selectedDecision && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6 border-b flex items-center justify-between">
+          <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b dark:border-slate-800 flex items-center justify-between">
               <div>
-                <h2 className="text-xl font-bold">Routing Decision Details</h2>
-                <p className="text-sm text-gray-500">
+                <h2 className="text-xl font-bold text-gray-900 dark:text-white">
+                  Routing Decision Details
+                </h2>
+                <p className="text-sm text-gray-500 dark:text-slate-400">
                   {selectedDecision.decisionId}
                 </p>
               </div>
               <button
+                type="button"
                 onClick={() => setSelectedDecision(null)}
-                className="text-gray-400 hover:text-gray-600"
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
               >
                 <X className="h-6 w-6" />
               </button>
             </div>
             <div className="p-6 space-y-6">
               <div className="grid gap-4 md:grid-cols-3">
-                <div className="p-4 rounded-lg bg-gray-50">
+                <div className="p-4 rounded-lg bg-gray-50 dark:bg-slate-800/60">
                   <p className="text-xs text-gray-500 uppercase tracking-wide">
                     Decision ID
                   </p>
-                  <p className="font-mono text-sm">
+                  <p className="font-mono text-sm text-gray-900 dark:text-gray-100">
                     {selectedDecision.decisionId}
                   </p>
                 </div>
-                <div className="p-4 rounded-lg bg-gray-50">
+                <div className="p-4 rounded-lg bg-gray-50 dark:bg-slate-800/60">
                   <p className="text-xs text-gray-500 uppercase tracking-wide">
                     Payment
                   </p>
-                  <p className="font-mono text-sm">
+                  <p className="font-mono text-sm text-gray-900 dark:text-gray-100">
                     {selectedDecision.paymentId}
                   </p>
                 </div>
-                <div className="p-4 rounded-lg bg-gray-50">
+                <div className="p-4 rounded-lg bg-gray-50 dark:bg-slate-800/60">
                   <p className="text-xs text-gray-500 uppercase tracking-wide">
                     Operation
                   </p>
-                  <p className="capitalize text-sm">
+                  <p className="capitalize text-sm text-gray-900 dark:text-gray-100">
                     {selectedDecision.operationType?.toLowerCase()}
                   </p>
                 </div>
               </div>
 
               <div className="grid gap-4 md:grid-cols-3">
-                <div className="p-4 rounded-lg bg-gray-50">
+                <div className="p-4 rounded-lg bg-gray-50 dark:bg-slate-800/60">
                   <p className="text-xs text-gray-500 uppercase tracking-wide">
                     Selected Provider
                   </p>
-                  <p className="text-2xl font-bold capitalize">
+                  <p className="text-2xl font-bold capitalize text-gray-900 dark:text-gray-100">
                     {selectedDecision.selectedProviderId || "None"}
                   </p>
                 </div>
-                <div className="p-4 rounded-lg bg-gray-50">
+                <div className="p-4 rounded-lg bg-gray-50 dark:bg-slate-800/60">
                   <p className="text-xs text-gray-500 uppercase tracking-wide">
                     Strategy
                   </p>
-                  <p className="text-lg font-medium">
+                  <p className="text-lg font-medium text-gray-900 dark:text-gray-100">
                     {STRATEGY_LABELS[selectedDecision.routingStrategy] ||
                       selectedDecision.routingStrategy}
                   </p>
                 </div>
-                <div className="p-4 rounded-lg bg-gray-50">
+                <div className="p-4 rounded-lg bg-gray-50 dark:bg-slate-800/60">
                   <p className="text-xs text-gray-500 uppercase tracking-wide">
                     Reason
                   </p>
@@ -359,13 +374,15 @@ export function RoutingDecisionExplorer() {
                 </div>
               </div>
 
-              <div className="border-t pt-6">
-                <h3 className="text-lg font-medium mb-4">Scoring Breakdown</h3>
+              <div className="border-t dark:border-slate-800 pt-6">
+                <h3 className="text-lg font-medium mb-4 text-gray-900 dark:text-white">
+                  Scoring Breakdown
+                </h3>
                 {selectedDecision.scoreBreakdown?.length > 0 ? (
                   <div className="overflow-x-auto">
                     <table className="w-full">
                       <thead>
-                        <tr className="border-b text-left text-sm text-gray-500">
+                        <tr className="border-b dark:border-slate-800 text-left text-sm text-gray-500 dark:text-slate-400">
                           <th className="pb-2 font-medium">Provider</th>
                           <th className="pb-2 font-medium text-right">
                             Reliability
@@ -379,25 +396,25 @@ export function RoutingDecisionExplorer() {
                           </th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y">
+                      <tbody className="divide-y dark:divide-slate-800">
                         {selectedDecision.scoreBreakdown.map((score) => (
                           <tr
                             key={score.providerId}
-                            className="hover:bg-gray-50"
+                            className="hover:bg-gray-50 dark:hover:bg-slate-800/50"
                           >
-                            <td className="py-2 text-sm capitalize">
+                            <td className="py-2 text-sm capitalize text-gray-900 dark:text-gray-100">
                               {score.providerId}
                             </td>
-                            <td className="py-2 text-sm text-right">
+                            <td className="py-2 text-sm text-right text-gray-900 dark:text-gray-100">
                               {(score.reliabilityScore * 100).toFixed(1)}%
                             </td>
-                            <td className="py-2 text-sm text-right">
+                            <td className="py-2 text-sm text-right text-gray-900 dark:text-gray-100">
                               {(score.latencyScore * 100).toFixed(1)}%
                             </td>
-                            <td className="py-2 text-sm text-right">
+                            <td className="py-2 text-sm text-right text-gray-900 dark:text-gray-100">
                               {(score.costScore * 100).toFixed(1)}%
                             </td>
-                            <td className="py-2 text-sm font-medium text-right text-blue-600">
+                            <td className="py-2 text-sm font-medium text-right text-blue-600 dark:text-blue-400">
                               {(score.weightedScore * 100).toFixed(1)}%
                             </td>
                           </tr>
@@ -406,19 +423,19 @@ export function RoutingDecisionExplorer() {
                     </table>
                   </div>
                 ) : (
-                  <p className="text-gray-500">
+                  <p className="text-gray-500 dark:text-slate-400">
                     No scoring breakdown available
                   </p>
                 )}
               </div>
 
-              <div className="border-t pt-6">
-                <h3 className="text-lg font-medium mb-4">
+              <div className="border-t dark:border-slate-800 pt-6">
+                <h3 className="text-lg font-medium mb-4 text-gray-900 dark:text-white">
                   Eligible & Rejected Providers
                 </h3>
                 <div className="grid gap-4 md:grid-cols-2">
                   <div>
-                    <h4 className="text-sm font-medium text-gray-500 mb-2">
+                    <h4 className="text-sm font-medium text-gray-500 dark:text-slate-400 mb-2">
                       Eligible Providers
                     </h4>
                     <div className="flex flex-wrap gap-2">
@@ -428,12 +445,14 @@ export function RoutingDecisionExplorer() {
                         </Badge>
                       ))}
                       {!selectedDecision.eligibleProviders?.length && (
-                        <span className="text-sm text-gray-500">None</span>
+                        <span className="text-sm text-gray-500 dark:text-slate-400">
+                          None
+                        </span>
                       )}
                     </div>
                   </div>
                   <div>
-                    <h4 className="text-sm font-medium text-gray-500 mb-2">
+                    <h4 className="text-sm font-medium text-gray-500 dark:text-slate-400 mb-2">
                       Rejected Providers
                     </h4>
                     <div className="space-y-1">
@@ -448,21 +467,25 @@ export function RoutingDecisionExplorer() {
                         </Badge>
                       ))}
                       {!selectedDecision.rejectedProviders?.length && (
-                        <span className="text-sm text-gray-500">None</span>
+                        <span className="text-sm text-gray-500 dark:text-slate-400">
+                          None
+                        </span>
                       )}
                     </div>
                   </div>
                 </div>
               </div>
 
-              <div className="border-t pt-6">
-                <h3 className="text-lg font-medium mb-4">Payment Details</h3>
+              <div className="border-t dark:border-slate-800 pt-6">
+                <h3 className="text-lg font-medium mb-4 text-gray-900 dark:text-white">
+                  Payment Details
+                </h3>
                 <div className="grid gap-4 md:grid-cols-3 text-sm">
                   <div>
                     <p className="text-xs text-gray-500 uppercase tracking-wide">
                       Amount
                     </p>
-                    <p className="font-medium">
+                    <p className="font-medium text-gray-900 dark:text-gray-100">
                       ${(Number(selectedDecision.amountMinor) / 100).toFixed(2)}
                     </p>
                   </div>
@@ -470,26 +493,28 @@ export function RoutingDecisionExplorer() {
                     <p className="text-xs text-gray-500 uppercase tracking-wide">
                       Currency
                     </p>
-                    <p className="font-medium">{selectedDecision.currency}</p>
+                    <p className="font-medium text-gray-900 dark:text-gray-100">
+                      {selectedDecision.currency}
+                    </p>
                   </div>
                   <div>
                     <p className="text-xs text-gray-500 uppercase tracking-wide">
                       Timestamp
                     </p>
-                    <p className="font-medium">
+                    <p className="font-medium text-gray-900 dark:text-gray-100">
                       {new Date(selectedDecision.createdAt).toLocaleString()}
                     </p>
                   </div>
                 </div>
               </div>
 
-              <div className="flex justify-end gap-3 pt-4 border-t">
-                <button
+              <div className="flex justify-end gap-3 pt-4 border-t dark:border-slate-800">
+                <Button
+                  variant="outline"
                   onClick={() => setSelectedDecision(null)}
-                  className="btn-secondary"
                 >
                   Close
-                </button>
+                </Button>
               </div>
             </div>
           </div>
