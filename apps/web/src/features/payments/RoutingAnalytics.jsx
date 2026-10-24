@@ -8,17 +8,26 @@ import {
   CardContent,
 } from "../../components/ui/Card.jsx";
 import { Badge } from "../../components/ui/Badge.jsx";
-import { TrendingDown, BarChart3, PieChart, LineChart } from "lucide-react";
 import {
+  TrendingDown,
+  BarChart3,
+  PieChart as PieChartIcon,
+  LineChart as LineChartIcon,
+} from "lucide-react";
+import {
+  BarChart,
+  Bar,
+  LineChart,
   Line,
+  PieChart,
+  Pie,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  Bar,
   Cell,
-  Pie,
+  Legend,
 } from "recharts";
 
 function getReasonVariant(reason) {
@@ -145,7 +154,7 @@ export function RoutingAnalytics() {
               <div className="text-3xl font-bold text-gray-900">
                 {Object.keys(providerStats).length}
               </div>
-              <PieChart className="h-8 w-8 text-gray-400" />
+              <PieChartIcon className="h-8 w-8 text-gray-400" />
             </div>
           </CardContent>
         </Card>
@@ -160,7 +169,7 @@ export function RoutingAnalytics() {
               <div className="text-3xl font-bold text-gray-900">
                 {Object.keys(strategyUsage).length}
               </div>
-              <LineChart className="h-8 w-8 text-gray-400" />
+              <LineChartIcon className="h-8 w-8 text-gray-400" />
             </div>
           </CardContent>
         </Card>
@@ -229,13 +238,12 @@ export function RoutingAnalytics() {
           </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={300}>
-              <PieChart
-                data={Object.entries(strategyUsage).map(([name, value]) => ({
-                  name,
-                  value,
-                }))}
-              >
+              <PieChart>
                 <Pie
+                  data={Object.entries(strategyUsage).map(([name, value]) => ({
+                    name,
+                    value,
+                  }))}
                   dataKey="value"
                   nameKey="name"
                   cx="50%"
