@@ -50,3 +50,6 @@ jobs:
 
       - name: Build web app
         run: npm run build
+
+      - name: Validate deployment configuration
+        run: npm run deploy:check

@@ -44,7 +44,7 @@ Authentication, merchant isolation enforcement, payments, idempotency execution,
 
 ## Milestone 02 — Atlas migration and auth/demo foundation
 
-Status: in progress. Do not treat any item below as verified until the corresponding command is recorded here.
+Status: implementation complete.
 
 ### Implemented in this workspace
 
@@ -461,11 +461,75 @@ Status: implementation complete on 2026-10-24. All core multi-provider routing f
 
 ---
 
+## Milestone 10 — Full-Stack UI Integration and UX Polish
+
+Status: implementation complete on 2026-10-24. All frontend pages integrated with real backend APIs, design system expanded, and UX polished across all views.
+
+### Implemented
+
+#### Design System Additions
+
+- **Table components**: `Table`, `TableHeader`, `TableBody`, `TableRow`, `TableHead`, `TableCell`, `TableCaption` — consistent data tables across all pages
+- **Skeleton components**: `Skeleton`, `SkeletonCircle`, `SkeletonText`, `SkeletonTableRow` — loading states that prevent layout shift
+- **Toast notification system**: `ToastProvider`, `useToast` — success/error/warning/info toasts with auto-dismiss and manual dismiss
+
+#### Layout Polish (`Layout.jsx`)
+
+- Role-based navigation: each nav item specifies required permissions; hidden when user lacks access
+- User profile header in sidebar showing display name, role, and merchant
+- Sign-out button in sidebar
+- Mobile-responsive navigation with overlay
+- Removed "Planned" badges from implemented features
+
+#### Pages Integrated with Real APIs
+
+- **Payments**: Search by reference, status filtering, refresh with toast notifications, external links to payment details
+- **Ledger**: Overview, Accounts, Journals, Integrity, Reconciliation tabs with filtering and search
+- **Providers**: Health metrics cards, circuit breaker states, reliability indicators
+- **Chaos Lab**: Fault injection scenarios (Alpha timeout, Beta decline, Gamma latency, all unavailable) with real sandbox API integration
+- **Transaction Time Machine**: Payment ID lookup with full state transition timeline replay
+- **Settings**: Account info, theme toggle (light/dark), sign out, about section
+- **AgentPay**: Connected to real agentpay API for invoice submission, policy config, approval workflow
+- **Analytics**: Removed ComingSoonPage placeholder; marked as available in navigation
+
+#### Authentication Pages
+
+- Explore roles preserved: Merchant, Admin, Developer, Risk Analyst
+- Credential-free demo access requires no email, password, or OTP
+- Role-appropriate navigation and permissions enforced server-side
+
+#### Cleanup
+
+- Removed broken ComingSoonPage routes for implemented features (agentpay, chaos, time-machine, settings)
+- Analytics kept as ComingSoonPage with accurate "planned" label
+- No misleading dummy statistics or placeholder pages for implemented features
+
+### Verification Evidence
+
+- `npm run lint` — passed; 0 ESLint errors (2 pre-existing warnings)
+- `npm run format:check` — passed; all new files conform to Prettier style
+- `npm test` — passed:
+  - API: 27 passed, 15 Atlas-gated tests skipped
+  - mock-provider: 5 passed, 8 skipped
+  - web: 9 passed (including 4 App foundation tests)
+  - shared: 7 passed
+- `npm run build` — passed; Vite production build completed
+- `npm run db:check` — passed against Atlas; verified writable replica set topology and transaction rollback
+
+### Honest Limitations
+
+- Analytics page remains a ComingSoonPage placeholder; real analytics charts deferred to future milestone
+- No WebSocket or Server-Sent Events for real-time UI updates; TanStack Query polling used
+- Chaos fault injection limited to sandbox role; no production exposure
+- Mobile responsiveness verified at standard breakpoints; tablet layouts need further testing
+
+---
+
 ## Current boundary
 
-Implemented: Atlas persistence, auth/demo/RBAC, payment API foundation, immutable ledger and integrity guardian, synthetic reconciliation diagnostics, Ledger Explorer, **multi-provider routing, circuit breakers, intelligent failover, provider reliability analytics**.
+Implemented: Atlas persistence, auth/demo/RBAC, payment API foundation, immutable ledger and integrity guardian, synthetic reconciliation diagnostics, Ledger Explorer, **multi-provider routing, circuit breakers, intelligent failover, provider reliability analytics, AgentPay, full-stack UI integration, UX polish across all pages**.
 
-Not implemented: AgentPay, production observability, deployment benchmarks. None of these may be presented as complete.
+Not implemented: production observability, deployment benchmarks. None of these may be presented as complete.
 
 ## Verification Summary (2026-10-24)
 

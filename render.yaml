@@ -1,0 +1,87 @@
+services:
+  - type: web
+    name: pratyaya-api-alive7z
+    runtime: node
+    plan: 0.5c-512mb
+    region: singapore
+    buildCommand: npm ci --omit=dev
+    startCommand: npm run start:api
+    healthCheckPath: /api/v1/health/ready
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: info
+      - key: TRUST_PROXY
+        value: "true"
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: MONGODB_AUTO_INDEX
+        value: "true"
+      - key: DEMO_AUTO_SEED
+        value: "true"
+      - key: PROVIDER_BASE_URL
+        value: https://pratyaya-provider-alive7z.onrender.com/provider/alpha
+      - key: CORS_ORIGINS
+        sync: false
+      - key: MONGODB_URI
+        sync: false
+      - key: AUTH_JWT_SECRET
+        sync: false
+      - key: MOCK_PROVIDER_HMAC_SECRET
+        fromService:
+          name: pratyaya-provider-alive7z
+          type: web
+          envVarKey: MOCK_PROVIDER_HMAC_SECRET
+
+  - type: web
+    name: pratyaya-provider-alive7z
+    runtime: node
+    plan: 0.5c-512mb
+    region: singapore
+    buildCommand: npm ci --omit=dev
+    startCommand: npm run start:provider
+    healthCheckPath: /health/ready
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: info
+      - key: MONGODB_AUTO_INDEX
+        value: "true"
+      - key: PROVIDER_PUBLIC_URL
+        value: https://pratyaya-provider-alive7z.onrender.com
+      - key: PROVIDER_MONGODB_URI
+        sync: false
+      - key: MOCK_PROVIDER_HMAC_SECRET
+        sync: false
+
+  - type: worker
+    name: pratyaya-worker-alive7z
+    runtime: node
+    plan: 0.5c-512mb
+    region: singapore
+    buildCommand: npm ci --omit=dev
+    startCommand: npm run start:worker
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: info
+      - key: MONGODB_AUTO_INDEX
+        value: "true"
+      - key: PROVIDER_BASE_URL
+        value: https://pratyaya-provider-alive7z.onrender.com/provider/alpha
+      - key: MONGODB_URI
+        fromService:
+          name: pratyaya-api-alive7z
+          type: web
+          envVarKey: MONGODB_URI
+      - key: MOCK_PROVIDER_HMAC_SECRET
+        fromService:
+          name: pratyaya-provider-alive7z
+          type: web
+          envVarKey: MOCK_PROVIDER_HMAC_SECRET

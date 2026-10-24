@@ -29,7 +29,13 @@
 
 Most payment demos show a checkout button, a spinner, and a green **Payment successful** message.
 
-But what if the payment *did* succeed and the network response never arrived? What if someone clicked **Pay** five times? What happens if a worker stops halfway through a refund?
+<<<<<<< HEAD
+But what if the payment _did_ succeed and the network response never arrived? What if someone clicked **Pay** five times? What happens if a worker stops halfway through a refund?
+=======
+
+But what if the payment _did_ succeed and the network response never arrived? What if someone clicked **Pay** five times? What happens if a worker stops halfway through a refund?
+
+> > > > > > > 7bee5f9 (docs: update README, env example, CI workflow, and deploy config)
 
 That's the part I wanted to explore with **Pratyaya**.
 
@@ -40,25 +46,49 @@ Pratyaya is a **backend-first, full-stack fintech simulation** focused on making
 
 ### The questions behind the project
 
-| Question | Engineering approach |
-| :-- | :-- |
-| What if the same request arrives 100 times? | Merchant-scoped **idempotency keys**, request fingerprints, and unique MongoDB indexes. |
+<<<<<<< HEAD
+
+| Question                                     | Engineering approach                                                                               |
+| :------------------------------------------- | :------------------------------------------------------------------------------------------------- |
+| What if the same request arrives 100 times?  | Merchant-scoped **idempotency keys**, request fingerprints, and unique MongoDB indexes.            |
 | What if the provider succeeds but times out? | Preserve the original operation ID, mark the outcome **uncertain**, and reconcile before retrying. |
-| How do we know the money adds up? | **Double-entry journals** where total debits equal total credits. |
-| What if a background worker crashes? | Durable jobs, leases, retries, and recovery rather than an in-memory queue. |
-| Which provider should handle a new payment? | Explainable routing based on health, latency, and synthetic cost—without unsafe failover. |
-| Can an AI agent pay an invoice on its own? | It can propose a payment; deterministic policies and **human approval** control execution. |
+| How do we know the money adds up?            | **Double-entry journals** where total debits equal total credits.                                  |
+| What if a background worker crashes?         | Durable jobs, leases, retries, and recovery rather than an in-memory queue.                        |
+| Which provider should handle a new payment?  | Explainable routing based on health, latency, and synthetic cost—without unsafe failover.          |
+| Can an AI agent pay an invoice on its own?   | It can propose a payment; deterministic policies and **human approval** control execution.         |
+| =======                                      |
+| Question                                     | Engineering approach                                                                               |
+| :------------------------------------------- | :------------------------------------------------------------------------------------------------- |
+| What if the same request arrives 100 times?  | Merchant-scoped **idempotency keys**, request fingerprints, and unique MongoDB indexes.            |
+| What if the provider succeeds but times out? | Preserve the original operation ID, mark the outcome **uncertain**, and reconcile before retrying. |
+| How do we know the money adds up?            | **Double-entry journals** where total debits equal total credits.                                  |
+| What if a background worker crashes?         | Durable jobs, leases, retries, and recovery rather than an in-memory queue.                        |
+| Which provider should handle a new payment?  | Explainable routing based on health, latency, and synthetic cost—without unsafe failover.          |
+| Can an AI agent pay an invoice on its own?   | It can propose a payment; deterministic policies and **human approval** control execution.         |
+
+> > > > > > > 7bee5f9 (docs: update README, env example, CI workflow, and deploy config)
 
 ## Explore the sandbox
 
 Pratyaya is designed to be approachable even if you don't have an account. The intended demo experience offers **one-click, credential-free access** on the Login and Register pages, with an isolated sandbox for each role.
 
-| Choose a perspective | What to explore |
-| :-- | :-- |
-| **Merchant** | Create simulated payments, track their state, inspect captures and refunds, and understand the ledger. |
-| **Admin** | Review sandbox operations, reconciliation issues, provider health, and integrity reports. |
-| **Developer** | Inspect API behavior, idempotency, webhooks, traces, and controlled failure experiments. |
-| **Risk Analyst** | Review unusual payment patterns, explainable risk decisions, and transaction investigations. |
+<<<<<<< HEAD
+
+| Choose a perspective | What to explore                                                                                        |
+| :------------------- | :----------------------------------------------------------------------------------------------------- |
+| **Merchant**         | Create simulated payments, track their state, inspect captures and refunds, and understand the ledger. |
+| **Admin**            | Review sandbox operations, reconciliation issues, provider health, and integrity reports.              |
+| **Developer**        | Inspect API behavior, idempotency, webhooks, traces, and controlled failure experiments.               |
+| **Risk Analyst**     | Review unusual payment patterns, explainable risk decisions, and transaction investigations.           |
+| =======              |
+| Choose a perspective | What to explore                                                                                        |
+| :------------------- | :----------------------------------------------------------------------------------------------------- |
+| **Merchant**         | Create simulated payments, track their state, inspect captures and refunds, and understand the ledger. |
+| **Admin**            | Review sandbox operations, reconciliation issues, provider health, and integrity reports.              |
+| **Developer**        | Inspect API behavior, idempotency, webhooks, traces, and controlled failure experiments.               |
+| **Risk Analyst**     | Review unusual payment patterns, explainable risk decisions, and transaction investigations.           |
+
+> > > > > > > 7bee5f9 (docs: update README, env example, CI workflow, and deploy config)
 
 **No email, password, or OTP should be needed for these demo paths.** Standard authenticated accounts are a separate experience. Demo permissions must still be enforced by the backend.
 
@@ -114,7 +144,13 @@ The availability of individual screens depends on which milestones have been imp
 <summary><strong>04 · Intelligent routing — choose carefully, fail over safely</strong></summary>
 
 - Compare simulated providers using observed availability, latency, and configured cost.
-- Explain *why* a provider was selected.
+  <<<<<<< HEAD
+- Explain _why_ a provider was selected.
+  \=======
+- Explain _why_ a provider was selected.
+
+> > > > > > > 7bee5f9 (docs: update README, env example, CI workflow, and deploy config)
+
 - Use circuit breakers to avoid sending new work to unhealthy providers.
 - **Never blindly reroute an already-dispatched payment after a timeout.**
 
@@ -232,32 +268,62 @@ The **Reliability Lab** is meant to make failure visible. Instead of claiming th
 
 When a fictional ₹1,000 payment is **confirmed captured**, the accounting model records the effect on both sides:
 
-| Account | Debit | Credit |
-| :-- | --: | --: |
-| Provider clearing (asset) | ₹1,000 | — |
-| Merchant payable (liability) | — | ₹1,000 |
-| **Total** | **₹1,000** | **₹1,000** |
+<<<<<<< HEAD
+
+| Account                      |      Debit |     Credit |
+| :--------------------------- | ---------: | ---------: |
+| Provider clearing (asset)    |     ₹1,000 |          — |
+| Merchant payable (liability) |          — |     ₹1,000 |
+| **Total**                    | **₹1,000** | **₹1,000** |
+| =======                      |
+| Account                      |      Debit |     Credit |
+| :--------------------------- | ---------: | ---------: |
+| Provider clearing (asset)    |     ₹1,000 |          — |
+| Merchant payable (liability) |          — |     ₹1,000 |
+| **Total**                    | **₹1,000** | **₹1,000** |
+
+> > > > > > > 7bee5f9 (docs: update README, env example, CI workflow, and deploy config)
 
 A confirmed refund creates a corresponding reversing journal. Merely authorizing a payment does **not** mean the money has been captured.
 
 <details>
 <summary><strong>Why not just store a balance field?</strong></summary>
 
-Because a balance tells you *how much* but not necessarily *why*. A journal tells you which economic event caused the change, which accounts moved, and whether the movement balanced. Derived balances can always be rebuilt from confirmed journals. MongoDB transactions, uniqueness constraints, and controlled corrections are used to protect that record.
+<<<<<<< HEAD
+Because a balance tells you _how much_ but not necessarily _why_. A journal tells you which economic event caused the change, which accounts moved, and whether the movement balanced. Derived balances can always be rebuilt from confirmed journals. MongoDB transactions, uniqueness constraints, and controlled corrections are used to protect that record.
+=======
+
+Because a balance tells you _how much_ but not necessarily _why_. A journal tells you which economic event caused the change, which accounts moved, and whether the movement balanced. Derived balances can always be rebuilt from confirmed journals. MongoDB transactions, uniqueness constraints, and controlled corrections are used to protect that record.
+
+> > > > > > > 7bee5f9 (docs: update README, env example, CI workflow, and deploy config)
 
 </details>
 
 ## Technology stack
 
-| Part | Tools |
-| :-- | :-- |
-| Client | React, Vite, JavaScript, Tailwind CSS, TanStack Query |
-| API | Node.js, Express, Zod, JWT, RBAC |
-| Data | MongoDB Atlas, Mongoose, multi-document transactions |
-| Async processing | MongoDB transactional outbox, durable job leases, retries |
-| Payment network | Independent Node.js mock providers and signed webhooks |
-| Testing | Vitest, Supertest, Playwright; reproducible concurrency/fault tests |
-| Delivery | Docker for local reproducibility, GitHub Actions, Vercel + compatible Node hosting |
+<<<<<<< HEAD
+
+| Part             | Tools                                                                              |
+| :--------------- | :--------------------------------------------------------------------------------- |
+| Client           | React, Vite, JavaScript, Tailwind CSS, TanStack Query                              |
+| API              | Node.js, Express, Zod, JWT, RBAC                                                   |
+| Data             | MongoDB Atlas, Mongoose, multi-document transactions                               |
+| Async processing | MongoDB transactional outbox, durable job leases, retries                          |
+| Payment network  | Independent Node.js mock providers and signed webhooks                             |
+| Testing          | Vitest, Supertest, Playwright; reproducible concurrency/fault tests                |
+| Delivery         | Docker for local reproducibility, GitHub Actions, Vercel + compatible Node hosting |
+| =======          |
+| Part             | Tools                                                                              |
+| :--------------- | :--------------------------------------------------------------------------------- |
+| Client           | React, Vite, JavaScript, Tailwind CSS, TanStack Query                              |
+| API              | Node.js, Express, Zod, JWT, RBAC                                                   |
+| Data             | MongoDB Atlas, Mongoose, multi-document transactions                               |
+| Async processing | MongoDB transactional outbox, durable job leases, retries                          |
+| Payment network  | Independent Node.js mock providers and signed webhooks                             |
+| Testing          | Vitest, Supertest, Playwright; reproducible concurrency/fault tests                |
+| Delivery         | Docker for local reproducibility, GitHub Actions, Vercel + compatible Node hosting |
+
+> > > > > > > 7bee5f9 (docs: update README, env example, CI workflow, and deploy config)
 
 ### Repository layout
 
@@ -352,14 +418,27 @@ Retrying the **same logical request** should reuse the same key. A new intended 
 
 This project is designed to produce reproducible evidence—not invented metrics. Useful experiments include:
 
-| Test target | What to verify |
-| :-- | :-- |
-| 100 same-key concurrent requests | One logical payment and no duplicate economic effect |
-| Timeout after provider success | Recovery by original provider operation ID |
-| Worker crash during execution | Durable job recovery without duplicate capture/refund |
-| Duplicate webhook delivery | One authorized financial posting |
-| Partial refund race | Total refunds never exceed captured value |
-| Ledger integrity scan | Every posted journal balances for its currency |
+<<<<<<< HEAD
+
+| Test target                      | What to verify                                        |
+| :------------------------------- | :---------------------------------------------------- |
+| 100 same-key concurrent requests | One logical payment and no duplicate economic effect  |
+| Timeout after provider success   | Recovery by original provider operation ID            |
+| Worker crash during execution    | Durable job recovery without duplicate capture/refund |
+| Duplicate webhook delivery       | One authorized financial posting                      |
+| Partial refund race              | Total refunds never exceed captured value             |
+| Ledger integrity scan            | Every posted journal balances for its currency        |
+| =======                          |
+| Test target                      | What to verify                                        |
+| :------------------------------- | :---------------------------------------------------- |
+| 100 same-key concurrent requests | One logical payment and no duplicate economic effect  |
+| Timeout after provider success   | Recovery by original provider operation ID            |
+| Worker crash during execution    | Durable job recovery without duplicate capture/refund |
+| Duplicate webhook delivery       | One authorized financial posting                      |
+| Partial refund race              | Total refunds never exceed captured value             |
+| Ledger integrity scan            | Every posted journal balances for its currency        |
+
+> > > > > > > 7bee5f9 (docs: update README, env example, CI workflow, and deploy config)
 
 **These are validation targets, not published test results.** Add actual commands, dates, sample sizes, and observed results to `docs/PROGRESS.md` or `docs/TEST_REPORT.md` after running them.
 
@@ -396,7 +475,13 @@ Because "request timed out" and "payment failed" are not the same thing. Retryin
 
 ### Built to understand the hard parts of payments.
 
-**Pratyaya** · *Trust in Every Transaction.*
+<<<<<<< HEAD
+**Pratyaya** · _Trust in Every Transaction._
+=======
+
+**Pratyaya** · _Trust in Every Transaction._
+
+> > > > > > > 7bee5f9 (docs: update README, env example, CI workflow, and deploy config)
 
 An independent full-stack fintech engineering project by [@alive7z](https://github.com/alive7z).
 
