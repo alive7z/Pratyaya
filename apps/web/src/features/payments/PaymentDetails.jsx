@@ -1,4 +1,4 @@
-import { useParams } from "react-router-dom";
+import { useParams, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../../app/AuthContext.jsx";
 import { apiClient } from "../../lib/apiClient.js";
@@ -10,6 +10,7 @@ import {
   CardContent,
 } from "../../components/ui/Card.jsx";
 import { Badge } from "../../components/ui/Badge.jsx";
+import { Button } from "../../components/ui/Button.jsx";
 import {
   CreditCard,
   CheckCircle,
@@ -19,6 +20,7 @@ import {
   DollarSign,
   ArrowDown,
   ArrowUp,
+  ArrowLeft,
   RefreshCw,
 } from "lucide-react";
 
@@ -74,14 +76,21 @@ export function PaymentDetails() {
     );
   }
 
-  const payment = paymentData?.data?.payment;
-  const timeline = timelineData?.data?.events || [];
-  const attempts = attemptsData?.data?.attempts || [];
+  const payment = paymentData?.data?.payment || paymentData?.data;
+  const timeline = timelineData?.data?.events || timelineData?.events || [];
+  const attempts = attemptsData?.data?.attempts || attemptsData?.attempts || [];
 
   if (!payment) {
     return (
       <div className="text-center py-12">
-        <p className="text-gray-500">Payment not found</p>
+        <p className="text-gray-500 dark:text-slate-400">Payment not found</p>
+        <Link
+          to="/payments"
+          className="btn-secondary mt-4 inline-flex items-center gap-2"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Back to payments
+        </Link>
       </div>
     );
   }
@@ -92,17 +101,31 @@ export function PaymentDetails() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">
-            {payment.reference}
-          </h1>
-          <p className="text-gray-500 mt-1">Payment Details & Timeline</p>
+          <div className="flex items-center gap-3">
+            <Link
+              to="/payments"
+              className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white transition-colors"
+              title="Back to payments"
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </Link>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+              {payment.reference}
+            </h1>
+          </div>
+          <p className="text-gray-500 dark:text-slate-400 mt-1 ml-9">
+            Payment Details & Timeline
+          </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <Badge variant={getStatusVariant(payment.status)} className="text-sm">
             {payment.status}
           </Badge>
+          <Button variant="outline" size="sm" asChild>
+            <Link to={`/payments/${payment.id}/refunds`}>Refunds</Link>
+          </Button>
         </div>
       </div>
 
