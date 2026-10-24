@@ -24,8 +24,8 @@ export default function ComingSoonPage() {
         {label} is not implemented yet
       </h1>
       <p className="mt-3 text-sm leading-6 text-slate-600 dark:text-slate-400">
-        This navigation entry is an honest preview of the product roadmap. M01
-        contains foundation and connectivity behavior only.
+        This navigation entry is a preview of the upcoming roadmap. Analytics
+        and reporting features are currently scheduled for the next milestone.
       </p>
       <Link to="/" className="btn-primary mt-6">
         Return to overview
