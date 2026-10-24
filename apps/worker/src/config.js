@@ -13,6 +13,8 @@ const booleanString = (defaultValue = "false") =>
     .default(defaultValue)
     .transform((value) => value === "true" || value === "1");
 
+const DEV_PROVIDER_SECRET = "dev-only-mock-provider-secret-change-me";
+
 const envSchema = z.object({
   NODE_ENV: z
     .enum(["development", "test", "production"])
@@ -37,6 +39,11 @@ const envSchema = z.object({
   MONGODB_CONNECT_TIMEOUT_MS: z.coerce.number().int().min(1000).default(10000),
   MONGODB_SOCKET_TIMEOUT_MS: z.coerce.number().int().min(1000).default(45000),
   MONGODB_AUTO_INDEX: booleanString("true"),
+  PROVIDER_BASE_URL: z
+    .string()
+    .url()
+    .default("http://127.0.0.1:4100/provider/alpha"),
+  MOCK_PROVIDER_HMAC_SECRET: z.string().min(32).default(DEV_PROVIDER_SECRET),
 });
 
 export function loadWorkerConfig() {
@@ -57,6 +64,15 @@ export function loadWorkerConfig() {
     );
   }
 
+  if (
+    result.data.NODE_ENV === "production" &&
+    result.data.MOCK_PROVIDER_HMAC_SECRET === DEV_PROVIDER_SECRET
+  ) {
+    throw new Error(
+      "Invalid worker configuration: MOCK_PROVIDER_HMAC_SECRET must be set to a unique secret in production",
+    );
+  }
+
   return Object.freeze({
     nodeEnv: result.data.NODE_ENV,
     logLevel: result.data.LOG_LEVEL,
@@ -68,6 +84,8 @@ export function loadWorkerConfig() {
     mongodbConnectTimeoutMs: result.data.MONGODB_CONNECT_TIMEOUT_MS,
     mongodbSocketTimeoutMs: result.data.MONGODB_SOCKET_TIMEOUT_MS,
     autoIndex: result.data.MONGODB_AUTO_INDEX,
+    providerBaseUrl: result.data.PROVIDER_BASE_URL.replace(/\/$/, ""),
+    mockProviderHmacSecret: result.data.MOCK_PROVIDER_HMAC_SECRET,
     service: Object.freeze({ name: "pratyaya-worker", version: "0.1.0" }),
   });
 }
