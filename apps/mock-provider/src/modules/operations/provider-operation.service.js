@@ -71,6 +71,7 @@ export async function createAuthorization({
     description,
     metadata,
   } = body;
+  const providerId = providerConfig.providerId;
 
   const requestPayload = {
     clientOperationId,
@@ -89,7 +90,11 @@ export async function createAuthorization({
   });
 
   const existing = await ProviderOperation.findOne(
-    { idempotencyKey, type: PROVIDER_OPERATION_TYPES.AUTHORIZATION },
+    {
+      providerId,
+      idempotencyKey,
+      type: PROVIDER_OPERATION_TYPES.AUTHORIZATION,
+    },
     null,
     { session },
   ).lean();
@@ -118,6 +123,7 @@ export async function createAuthorization({
   const [operation] = await ProviderOperation.create(
     [
       {
+        providerId,
         operationId,
         type: PROVIDER_OPERATION_TYPES.AUTHORIZATION,
         clientOperationId,
@@ -217,6 +223,7 @@ export async function createCapture({ body, providerConfig, session, isDemo }) {
     merchantId,
     metadata,
   } = body;
+  const providerId = providerConfig.providerId;
 
   const requestPayload = {
     clientOperationId,
@@ -234,7 +241,7 @@ export async function createCapture({ body, providerConfig, session, isDemo }) {
   });
 
   const existing = await ProviderOperation.findOne(
-    { idempotencyKey, type: PROVIDER_OPERATION_TYPES.CAPTURE },
+    { providerId, idempotencyKey, type: PROVIDER_OPERATION_TYPES.CAPTURE },
     null,
     { session },
   ).lean();
@@ -263,6 +270,7 @@ export async function createCapture({ body, providerConfig, session, isDemo }) {
   const [operation] = await ProviderOperation.create(
     [
       {
+        providerId,
         operationId,
         type: PROVIDER_OPERATION_TYPES.CAPTURE,
         clientOperationId,
@@ -364,6 +372,7 @@ export async function createRefund({ body, providerConfig, session, isDemo }) {
     reason,
     metadata,
   } = body;
+  const providerId = providerConfig.providerId;
 
   const requestPayload = {
     clientOperationId,
@@ -382,7 +391,7 @@ export async function createRefund({ body, providerConfig, session, isDemo }) {
   });
 
   const existing = await ProviderOperation.findOne(
-    { idempotencyKey, type: PROVIDER_OPERATION_TYPES.REFUND },
+    { providerId, idempotencyKey, type: PROVIDER_OPERATION_TYPES.REFUND },
     null,
     { session },
   ).lean();
@@ -411,6 +420,7 @@ export async function createRefund({ body, providerConfig, session, isDemo }) {
   const [operation] = await ProviderOperation.create(
     [
       {
+        providerId,
         operationId,
         type: PROVIDER_OPERATION_TYPES.REFUND,
         clientOperationId,
@@ -501,8 +511,8 @@ export async function createRefund({ body, providerConfig, session, isDemo }) {
   return { operation: updated, idempotent: false };
 }
 
-export async function getOperation({ operationId, session }) {
-  const operation = await ProviderOperation.findOne({ operationId })
+export async function getOperation({ operationId, providerId, session }) {
+  const operation = await ProviderOperation.findOne({ operationId, providerId })
     .session(session)
     .lean();
   if (!operation) {
@@ -515,8 +525,13 @@ export async function getOperation({ operationId, session }) {
   return operation;
 }
 
-export async function listOperations({ merchantId, query, session }) {
-  const filter = { merchantId };
+export async function listOperations({
+  merchantId,
+  providerId,
+  query,
+  session,
+}) {
+  const filter = { merchantId, providerId };
   if (query.type) filter.type = query.type;
   if (query.status) filter.status = query.status;
   if (query.from || query.to) {
