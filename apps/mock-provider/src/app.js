@@ -1,8 +1,9 @@
 import express from "express";
 import helmet from "helmet";
 import pino from "pino";
-import mongoose from "mongoose";
 import { withTimeout } from "./lib/async.js";
+import { AppError } from "./lib/errors.js";
+import { authenticateProvider } from "./middleware/authenticateProvider.js";
 import { requestId } from "./middleware/requestId.js";
 import { requestLogger } from "./middleware/requestLogger.js";
 import providerOperationRoutes from "./modules/operations/provider-operation.routes.js";
@@ -32,23 +33,6 @@ async function checkDatabase(database) {
       code: "PROVIDER_DATABASE_UNAVAILABLE",
     };
   }
-}
-
-function mongooseSessionMiddleware() {
-  return async (req, res, next) => {
-    if (mongoose.connection.readyState !== 1) {
-      return next();
-    }
-    const session = await mongoose.startSession();
-    req.mongooseSession = session;
-    try {
-      await session.withTransaction(async () => {
-        await next();
-      });
-    } finally {
-      await session.endSession();
-    }
-  };
 }
 
 function providerConfigMiddleware(providers) {
@@ -89,7 +73,14 @@ export function createProviderApp({ database, config, logger = silentLogger }) {
   app.use(requestId);
   app.use(requestLogger(logger));
   app.use(helmet());
-  app.use(express.json({ limit: "32kb" }));
+  app.use(
+    express.json({
+      limit: "32kb",
+      verify(req, _res, buffer) {
+        req.rawBody = Buffer.from(buffer);
+      },
+    }),
+  );
 
   app.locals.config = config;
 
@@ -150,17 +141,17 @@ export function createProviderApp({ database, config, logger = silentLogger }) {
     });
   });
 
-  app.use(mongooseSessionMiddleware());
-
   app.use(
     "/provider/:providerId",
     providerConfigMiddleware(config.providers),
+    authenticateProvider,
     providerOperationRoutes,
   );
 
   app.use(
     "/provider",
     providerConfigMiddleware(config.providers),
+    authenticateProvider,
     providerOperationRoutes,
   );
 
@@ -178,11 +169,22 @@ export function createProviderApp({ database, config, logger = silentLogger }) {
     if (res.headersSent) return;
 
     const isParseError = error?.type === "entity.parse.failed";
-    const statusCode = isParseError ? 400 : 500;
-    const code = isParseError ? "INVALID_JSON" : "INTERNAL_ERROR";
+    const isOperational = error instanceof AppError;
+    const statusCode = isParseError
+      ? 400
+      : isOperational
+        ? error.statusCode
+        : 500;
+    const code = isParseError
+      ? "INVALID_JSON"
+      : isOperational
+        ? error.code
+        : "INTERNAL_ERROR";
     const message = isParseError
       ? "Request body is not valid JSON"
-      : "Unexpected provider error";
+      : isOperational
+        ? error.message
+        : "Unexpected provider error";
 
     if (statusCode >= 500) {
       logger.error(
@@ -192,7 +194,11 @@ export function createProviderApp({ database, config, logger = silentLogger }) {
     }
 
     res.status(statusCode).json({
-      error: { code, message },
+      error: {
+        code,
+        message,
+        ...(isOperational && error.details ? { details: error.details } : {}),
+      },
       meta: meta(req.requestId),
     });
   });
