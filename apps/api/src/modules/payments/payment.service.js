@@ -1,0 +1,466 @@
+import mongoose from "mongoose";
+import {
+  IDEMPOTENCY_OPERATIONS,
+  IDEMPOTENCY_STATE,
+  OUTBOX_EVENT_TYPES,
+  OUTBOX_STATE,
+  PAYMENT_STATUS,
+} from "@pratyaya/shared";
+import { AppError } from "../../lib/errors.js";
+import { runInTransaction } from "../../lib/transaction.js";
+import { Payment } from "./payment.model.js";
+import { IdempotencyRecord } from "./idempotency-record.model.js";
+import { OutboxEvent } from "./outbox-event.model.js";
+import { PaymentEvent } from "./payment-event.model.js";
+import { recordPaymentEvent, toPaymentDto } from "./payment.repository.js";
+import {
+  assertTransition,
+  CANCELLABLE_STATUSES,
+} from "./payment.state-machine.js";
+import {
+  fingerprintPaymentCreate,
+  getIdempotencyKey,
+  hashIdempotencyKey,
+  hashPayload,
+} from "../../lib/idempotency.js";
+
+function generateReference() {
+  const suffix = new mongoose.Types.ObjectId()
+    .toString()
+    .slice(-10)
+    .toUpperCase();
+  return `PAY-${suffix}`;
+}
+
+function now() {
+  return new Date();
+}
+
+export async function createPayment({ auth, body, req }) {
+  const merchantId = auth.merchantId;
+  const key = getIdempotencyKey(req);
+  const keyHash = hashIdempotencyKey(key);
+  const fingerprint = fingerprintPaymentCreate(body);
+  const fingerprintHash = hashPayload(fingerprint);
+  const reference = body.merchantReference ?? generateReference();
+  const customerReference = body.customerReference ?? null;
+  const customerLabel = customerReference ?? body.description ?? reference;
+
+  try {
+    const result = await runInTransaction(async (session) => {
+      const existing = await IdempotencyRecord.findOne(
+        {
+          merchantId,
+          operation: IDEMPOTENCY_OPERATIONS.CREATE_PAYMENT,
+          keyHash,
+        },
+        null,
+        { session },
+      );
+
+      if (existing) {
+        if (existing.requestFingerprint !== fingerprintHash) {
+          throw new AppError(
+            409,
+            "IDEMPOTENCY_KEY_CONFLICT",
+            "Idempotency-Key was used with a different payload",
+            {
+              operation: IDEMPOTENCY_OPERATIONS.CREATE_PAYMENT,
+            },
+          );
+        }
+
+        if (existing.status === IDEMPOTENCY_STATE.COMPLETED) {
+          if (!existing.paymentId) {
+            throw new AppError(
+              409,
+              "IDEMPOTENCY_IN_PROGRESS",
+              "Idempotency record is in progress or invalid",
+            );
+          }
+          const payment = await Payment.findById(existing.paymentId)
+            .session(session)
+            .lean();
+          if (!payment || String(payment.merchantId) !== String(merchantId)) {
+            throw new AppError(404, "PAYMENT_NOT_FOUND", "Payment not found");
+          }
+          return {
+            payment: toPaymentDto(payment),
+            idempotent: true,
+            status: 201,
+          };
+        }
+
+        if (existing.status === IDEMPOTENCY_STATE.IN_PROGRESS) {
+          throw new AppError(
+            409,
+            "IDEMPOTENCY_IN_PROGRESS",
+            "A request with this Idempotency-Key is already in progress",
+          );
+        }
+
+        throw new AppError(
+          409,
+          "IDEMPOTENCY_FAILED",
+          "A previous request with this Idempotency-Key failed",
+        );
+      }
+
+      const [idempotency] = await IdempotencyRecord.create(
+        [
+          {
+            merchantId,
+            operation: IDEMPOTENCY_OPERATIONS.CREATE_PAYMENT,
+            keyHash,
+            requestFingerprint: fingerprintHash,
+            status: IDEMPOTENCY_STATE.IN_PROGRESS,
+            expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+          },
+        ],
+        { session },
+      );
+
+      let payment;
+      try {
+        [payment] = await Payment.create(
+          [
+            {
+              merchantId,
+              reference,
+              customerReference,
+              customerLabel,
+              amountMinor: BigInt(body.amountMinor),
+              capturedMinor: 0n,
+              refundedMinor: 0n,
+              currency: body.currency,
+              status: PAYMENT_STATUS.CREATED,
+              riskScore: 0,
+              description: body.description,
+              metadata: body.metadata,
+              createdByUserId: auth.user?._id ?? auth.userId,
+              isDemo: Boolean(auth.isDemo),
+            },
+          ],
+          { session },
+        );
+      } catch (error) {
+        if (error?.code === 11000) {
+          const existingPayment = await Payment.findOne(
+            { merchantId, reference },
+            null,
+            { session },
+          ).lean();
+          if (existingPayment) {
+            await IdempotencyRecord.updateOne(
+              { _id: idempotency._id },
+              {
+                $set: {
+                  status: IDEMPOTENCY_STATE.COMPLETED,
+                  paymentId: existingPayment._id,
+                  completedAt: now(),
+                },
+              },
+              { session },
+            );
+            return {
+              payment: toPaymentDto(existingPayment),
+              idempotent: true,
+              status: 201,
+            };
+          }
+        }
+        throw error;
+      }
+
+      await recordPaymentEvent(
+        {
+          paymentId: payment._id,
+          merchantId,
+          eventType: "payment.created",
+          fromStatus: null,
+          toStatus: PAYMENT_STATUS.CREATED,
+          actorUserId: auth.user?._id ?? auth.userId,
+          actorRole: auth.role,
+          summary: "Payment created",
+          metadata: {
+            amountMinor: body.amountMinor,
+            currency: body.currency,
+          },
+          isDemo: Boolean(auth.isDemo),
+        },
+        session,
+      );
+
+      await OutboxEvent.create(
+        [
+          {
+            merchantId,
+            aggregateType: "payment",
+            aggregateId: payment._id,
+            eventType: OUTBOX_EVENT_TYPES.PAYMENT_CREATED,
+            payload: {
+              paymentId: String(payment._id),
+              merchantId: String(merchantId),
+              amountMinor: body.amountMinor,
+              currency: body.currency,
+            },
+            state: OUTBOX_STATE.PENDING,
+            idempotencyKeyHash: keyHash,
+            isDemo: Boolean(auth.isDemo),
+          },
+        ],
+        { session },
+      );
+
+      await IdempotencyRecord.updateOne(
+        { _id: idempotency._id },
+        {
+          $set: {
+            status: IDEMPOTENCY_STATE.COMPLETED,
+            paymentId: payment._id,
+            responseStatus: 201,
+            completedAt: now(),
+          },
+        },
+        { session },
+      );
+
+      return { payment: toPaymentDto(payment), idempotent: false, status: 201 };
+    });
+
+    return result;
+  } catch (error) {
+    if (error instanceof AppError) throw error;
+    throw error;
+  }
+}
+
+export async function listPayments({ auth, query }) {
+  const merchantId = auth.merchantId;
+  const filter = { merchantId };
+  if (query.status) filter.status = query.status;
+  if (query.from || query.to) {
+    filter.createdAt = {};
+    if (query.from) filter.createdAt.$gte = new Date(query.from);
+    if (query.to) filter.createdAt.$lte = new Date(query.to);
+  }
+
+  const limit = query.limit ?? 20;
+  const payments = await Payment.find(filter)
+    .sort({ createdAt: -1, _id: -1 })
+    .limit(limit)
+    .lean();
+
+  return {
+    payments: payments.map((payment) => toPaymentDto(payment)),
+    count: payments.length,
+  };
+}
+
+export async function getPayment({ auth, paymentId }) {
+  const merchantId = auth.merchantId;
+  const payment = await Payment.findOne({ _id: paymentId, merchantId }).lean();
+  if (!payment) {
+    throw new AppError(404, "PAYMENT_NOT_FOUND", "Payment not found");
+  }
+  return toPaymentDto(payment);
+}
+
+export async function getPaymentTimeline({ auth, paymentId }) {
+  const merchantId = auth.merchantId;
+  const payment = await Payment.findOne({ _id: paymentId, merchantId }).lean();
+  if (!payment) {
+    throw new AppError(404, "PAYMENT_NOT_FOUND", "Payment not found");
+  }
+
+  const events = await PaymentEvent.find({ paymentId, merchantId })
+    .sort({ createdAt: 1, _id: 1 })
+    .lean();
+
+  return {
+    payment: toPaymentDto(payment),
+    events: events.map((event) => ({
+      id: String(event._id),
+      eventType: event.eventType,
+      fromStatus: event.fromStatus ?? null,
+      toStatus: event.toStatus ?? null,
+      summary: event.summary,
+      actorRole: event.actorRole ?? null,
+      metadata: event.metadata ?? null,
+      createdAt: event.createdAt,
+    })),
+  };
+}
+
+export async function getPaymentSummary({ auth }) {
+  const merchantId = auth.merchantId;
+  const [total, byStatus] = await Promise.all([
+    Payment.countDocuments({ merchantId }),
+    Payment.aggregate([
+      { $match: { merchantId } },
+      { $group: { _id: "$status", count: { $sum: 1 } } },
+    ]),
+  ]);
+
+  const statusCounts = {};
+  for (const entry of byStatus) {
+    statusCounts[entry._id] = entry.count;
+  }
+
+  return { total, statusCounts };
+}
+
+export async function cancelPayment({ auth, paymentId, req }) {
+  const merchantId = auth.merchantId;
+  const key = getIdempotencyKey(req);
+  const keyHash = hashIdempotencyKey(key);
+  const requestFingerprint = hashPayload({ paymentId });
+
+  return runInTransaction(async (session) => {
+    const existingIdem = await IdempotencyRecord.findOne(
+      {
+        merchantId,
+        operation: IDEMPOTENCY_OPERATIONS.CANCEL_PAYMENT,
+        keyHash,
+      },
+      null,
+      { session },
+    );
+
+    if (existingIdem) {
+      if (existingIdem.requestFingerprint !== requestFingerprint) {
+        throw new AppError(
+          409,
+          "IDEMPOTENCY_KEY_CONFLICT",
+          "Idempotency-Key was used with a different cancellation request",
+        );
+      }
+      if (existingIdem.status === IDEMPOTENCY_STATE.IN_PROGRESS) {
+        throw new AppError(
+          409,
+          "IDEMPOTENCY_IN_PROGRESS",
+          "A request with this Idempotency-Key is already in progress",
+        );
+      }
+      if (
+        existingIdem.status === IDEMPOTENCY_STATE.COMPLETED &&
+        existingIdem.paymentId
+      ) {
+        const payment = await Payment.findById(existingIdem.paymentId)
+          .session(session)
+          .lean();
+        if (payment && String(payment.merchantId) === String(merchantId)) {
+          return { payment: toPaymentDto(payment), idempotent: true };
+        }
+      }
+    }
+
+    const [idempotency] = await IdempotencyRecord.create(
+      [
+        {
+          merchantId,
+          operation: IDEMPOTENCY_OPERATIONS.CANCEL_PAYMENT,
+          keyHash,
+          requestFingerprint,
+          status: IDEMPOTENCY_STATE.IN_PROGRESS,
+          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        },
+      ],
+      { session },
+    );
+
+    const payment = await Payment.findOne({
+      _id: paymentId,
+      merchantId,
+    }).session(session);
+    if (!payment) {
+      throw new AppError(404, "PAYMENT_NOT_FOUND", "Payment not found");
+    }
+
+    if (!CANCELLABLE_STATUSES.includes(payment.status)) {
+      throw new AppError(
+        409,
+        "PAYMENT_NOT_CANCELLABLE",
+        "Only CREATED or QUEUED payments can be cancelled",
+        { status: payment.status },
+      );
+    }
+
+    const fromStatus = payment.status;
+    assertTransition(fromStatus, PAYMENT_STATUS.CANCELLED);
+
+    const cancelled = await Payment.findOneAndUpdate(
+      {
+        _id: payment._id,
+        merchantId,
+        status: fromStatus,
+        version: payment.version ?? 0,
+      },
+      {
+        $set: {
+          status: PAYMENT_STATUS.CANCELLED,
+          cancelledAt: new Date(),
+        },
+        $inc: { version: 1 },
+      },
+      { returnDocument: "after", session },
+    );
+    if (!cancelled) {
+      throw new AppError(
+        409,
+        "PAYMENT_CONCURRENCY_CONFLICT",
+        "Payment changed while cancellation was being applied",
+      );
+    }
+
+    await recordPaymentEvent(
+      {
+        paymentId: payment._id,
+        merchantId,
+        eventType: "payment.cancelled",
+        fromStatus,
+        toStatus: PAYMENT_STATUS.CANCELLED,
+        actorUserId: auth.user?._id ?? auth.userId,
+        actorRole: auth.role,
+        summary: "Payment cancelled",
+        metadata: null,
+        isDemo: Boolean(auth.isDemo),
+      },
+      session,
+    );
+
+    await OutboxEvent.create(
+      [
+        {
+          merchantId,
+          aggregateType: "payment",
+          aggregateId: cancelled._id,
+          eventType: OUTBOX_EVENT_TYPES.PAYMENT_CANCELLED,
+          payload: {
+            paymentId: String(cancelled._id),
+            merchantId: String(merchantId),
+          },
+          state: OUTBOX_STATE.PENDING,
+          idempotencyKeyHash: keyHash,
+          isDemo: Boolean(auth.isDemo),
+        },
+      ],
+      { session },
+    );
+
+    await IdempotencyRecord.updateOne(
+      { _id: idempotency._id },
+      {
+        $set: {
+          status: IDEMPOTENCY_STATE.COMPLETED,
+          paymentId: cancelled._id,
+          responseStatus: 200,
+          completedAt: now(),
+        },
+      },
+      { session },
+    );
+
+    return { payment: toPaymentDto(cancelled), idempotent: false };
+  });
+}
