@@ -5,6 +5,13 @@ import { createProviderApp } from "../src/app.js";
 function config() {
   return {
     service: { name: "pratyaya-mock-provider", version: "0.1.0" },
+    providers: [
+      {
+        providerId: "alpha",
+        baseUrl: "https://provider.example.invalid/provider/alpha",
+        hmacSecret: "test-provider-hmac-secret-at-least-32-chars",
+      },
+    ],
   };
 }
 
@@ -68,5 +75,15 @@ describe("mock provider health", () => {
       .send("{")
       .expect(400);
     expect(malformed.body.error.code).toBe("INVALID_JSON");
+  });
+
+  it("rejects unsigned provider operations before persistence", async () => {
+    const app = providerApp();
+    const response = await request(app)
+      .post("/provider/alpha/v1/authorizations")
+      .send({})
+      .expect(401);
+
+    expect(response.body.error.code).toBe("PROVIDER_AUTHENTICATION_FAILED");
   });
 });
