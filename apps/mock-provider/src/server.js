@@ -21,7 +21,7 @@ try {
 const database = { ping: () => pingMongo(connection) };
 const app = createProviderApp({ database, config, logger });
 
-const server = app.listen(config.providerPort, () => {
+const server = app.listen(config.providerPort, "0.0.0.0", () => {
   logger.info(
     {
       event: "provider.started",
