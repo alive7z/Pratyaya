@@ -18,6 +18,8 @@ const booleanString = (defaultValue = "false") =>
     .default(defaultValue)
     .transform((value) => value === "true" || value === "1");
 
+const DEV_PROVIDER_SECRET = "dev-only-mock-provider-secret-change-me";
+
 const faultRuleSchema = z
   .object({
     type: z.enum([
@@ -71,6 +73,9 @@ const envSchema = z.object({
     .enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"])
     .default("info"),
   PROVIDER_PORT: z.coerce.number().int().min(1).max(65535).default(4100),
+  PORT: z.coerce.number().int().min(1).max(65535).optional(),
+  PROVIDER_PUBLIC_URL: z.string().url().default("http://127.0.0.1:4100"),
+  MOCK_PROVIDER_HMAC_SECRET: z.string().min(32).default(DEV_PROVIDER_SECRET),
   PROVIDER_MONGODB_URI: z
     .string()
     .regex(
@@ -90,9 +95,8 @@ const envSchema = z.object({
   PROVIDERS: z
     .string()
     .optional()
-    .transform((val) => (val ? JSON.parse(val) : []))
-    .pipe(providersSchema)
-    .default([]),
+    .transform((val) => (val ? JSON.parse(val) : undefined))
+    .pipe(providersSchema.optional()),
   PROVIDER_FAULTS: z
     .string()
     .optional()
@@ -121,13 +125,28 @@ export function loadConfig() {
     );
   }
 
-  if (env.PROVIDERS.length === 0) {
+  if (
+    env.NODE_ENV === "production" &&
+    env.MOCK_PROVIDER_HMAC_SECRET === DEV_PROVIDER_SECRET
+  ) {
     throw new Error(
-      "Invalid mock-provider configuration: At least one provider must be configured in PROVIDERS",
+      "Invalid mock-provider configuration: MOCK_PROVIDER_HMAC_SECRET must be set to a unique secret in production",
     );
   }
 
-  const providerIds = env.PROVIDERS.map((p) => p.providerId);
+  const publicUrl = env.PROVIDER_PUBLIC_URL.replace(/\/$/, "");
+  const providers =
+    env.PROVIDERS ??
+    ["alpha", "beta", "gamma"].map((providerId) => ({
+      providerId,
+      baseUrl: `${publicUrl}/provider/${providerId}`,
+      hmacSecret: env.MOCK_PROVIDER_HMAC_SECRET,
+      timeoutMs: 15000,
+      retryAttempts: 3,
+      faults: { enabled: false, rules: [] },
+    }));
+
+  const providerIds = providers.map((p) => p.providerId);
   if (new Set(providerIds).size !== providerIds.length) {
     throw new Error("Duplicate provider IDs in PROVIDERS configuration");
   }
@@ -135,7 +154,7 @@ export function loadConfig() {
   return Object.freeze({
     nodeEnv: env.NODE_ENV,
     logLevel: env.LOG_LEVEL,
-    providerPort: env.PROVIDER_PORT,
+    providerPort: env.PORT ?? env.PROVIDER_PORT,
     mongodb: Object.freeze({
       uri: env.PROVIDER_MONGODB_URI,
       maxPoolSize: env.MONGODB_MAX_POOL_SIZE,
@@ -145,7 +164,9 @@ export function loadConfig() {
       autoIndex: env.MONGODB_AUTO_INDEX,
     }),
     faults: Object.freeze(env.PROVIDER_FAULTS),
-    providers: Object.freeze(env.PROVIDERS),
+    providers: Object.freeze(
+      providers.map((provider) => Object.freeze(provider)),
+    ),
     service: Object.freeze({
       name: "pratyaya-mock-provider",
       version: packageJson.version,
