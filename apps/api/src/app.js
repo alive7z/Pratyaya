@@ -74,7 +74,7 @@ export function createApp({ database, config, logger = silentLogger }) {
           new AppError(403, "ORIGIN_NOT_ALLOWED", "Origin is not allowed"),
         );
       },
-      methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+      methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
       allowedHeaders: [
         "Content-Type",
         "Authorization",
@@ -124,6 +124,8 @@ export function createApp({ database, config, logger = silentLogger }) {
   app.use("/api/v1/routing", createRoutingRouter({ config }));
 
   app.use("/api/v1/sandbox", createSandboxRouter({ config }));
+
+  app.use("/api/v1/agentpay", createAgentPayRouter({ config }));
 
   app.get("/api-docs/openapi.json", (_req, res) => {
     res.json(openApiDocument);
