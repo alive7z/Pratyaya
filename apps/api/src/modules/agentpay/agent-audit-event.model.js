@@ -54,4 +54,5 @@ agentAuditEventSchema.index({ merchantId: 1, proposalId: 1, createdAt: -1 });
 agentAuditEventSchema.index({ merchantId: 1, action: 1, createdAt: -1 });
 
 export const AgentAuditEvent =
-  mongoose.models.AgentAuditEvent ?? mongoose.model("AgentAuditEvent", agentAuditEventSchema);
+  mongoose.models.AgentAuditEvent ??
+  mongoose.model("AgentAuditEvent", agentAuditEventSchema);
