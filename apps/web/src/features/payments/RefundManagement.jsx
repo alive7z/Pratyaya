@@ -1,4 +1,4 @@
-import { useParams } from "react-router-dom";
+import { useParams, Link } from "react-router-dom";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../../app/AuthContext.jsx";
@@ -23,7 +23,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from "../../components/ui/Dialog.jsx";
-import { Plus, AlertTriangle } from "lucide-react";
+import { Plus, AlertTriangle, ArrowLeft } from "lucide-react";
 
 export function RefundManagement() {
   const { paymentId } = useParams();
@@ -76,18 +76,29 @@ export function RefundManagement() {
     );
   }
 
-  const payment = paymentData?.data?.payment;
-  const refunds = refundsData?.data?.refunds || [];
+  const payment = paymentData?.data?.payment || paymentData?.data;
+  const refunds = Array.isArray(refundsData?.data)
+    ? refundsData.data
+    : refundsData?.data?.refunds || refundsData?.data?.items || [];
 
   if (!payment) {
     return (
       <div className="text-center py-12">
-        <p className="text-gray-500">Payment not found</p>
+        <p className="text-gray-500 dark:text-slate-400">Payment not found</p>
+        <Link
+          to="/payments"
+          className="btn-secondary mt-4 inline-flex items-center gap-2"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Back to payments
+        </Link>
       </div>
     );
   }
 
-  const capturedMinor = BigInt(payment.capturedMinor || payment.amountMinor);
+  const capturedMinor = BigInt(
+    payment.capturedMinor || payment.amountMinor || 0,
+  );
   const refundedMinor = BigInt(payment.refundedMinor || 0);
   const availableMinor = capturedMinor - refundedMinor;
   const pendingRefunds = refunds
@@ -108,12 +119,23 @@ export function RefundManagement() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">
-            Refund Management
-          </h1>
-          <p className="text-gray-500 mt-1">Payment: {payment.reference}</p>
+          <div className="flex items-center gap-3">
+            <Link
+              to={`/payments/${payment.id}`}
+              className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white transition-colors"
+              title="Back to payment details"
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </Link>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+              Refund Management
+            </h1>
+          </div>
+          <p className="text-gray-500 dark:text-slate-400 mt-1 ml-9">
+            Payment: {payment.reference}
+          </p>
         </div>
         <Dialog open={refundDialogOpen} onOpenChange={setRefundDialogOpen}>
           <DialogTrigger asChild>
