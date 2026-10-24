@@ -28,12 +28,14 @@ const proposalSchema = new mongoose.Schema(
       paymentPurpose: { type: String, trim: true, maxlength: 500 },
       invoiceDate: { type: Date },
       dueDate: { type: Date },
-      lineItems: [{
-        description: { type: String, maxlength: 300 },
-        quantity: { type: Number },
-        unitPriceMinor: { type: mongoose.Schema.Types.BigInt },
-        totalMinor: { type: mongoose.Schema.Types.BigInt },
-      }],
+      lineItems: [
+        {
+          description: { type: String, maxlength: 300 },
+          quantity: { type: Number },
+          unitPriceMinor: { type: mongoose.Schema.Types.BigInt },
+          totalMinor: { type: mongoose.Schema.Types.BigInt },
+        },
+      ],
     },
     confidence: {
       type: Number,
@@ -74,7 +76,10 @@ const proposalSchema = new mongoose.Schema(
       riskScore: { type: Number, min: 0, max: 100 },
       riskLevel: { type: String, enum: ["LOW", "MEDIUM", "HIGH", "CRITICAL"] },
       riskDecision: { type: String, enum: ["ALLOW", "REVIEW", "BLOCK"] },
-      riskDecisionId: { type: mongoose.Schema.Types.ObjectId, ref: "RiskDecision" },
+      riskDecisionId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "RiskDecision",
+      },
     },
     approval: {
       approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
@@ -102,7 +107,12 @@ const proposalSchema = new mongoose.Schema(
 
 proposalSchema.index({ merchantId: 1, invoiceId: 1 }, { unique: true });
 proposalSchema.index({ merchantId: 1, status: 1, createdAt: -1 });
-proposalSchema.index({ merchantId: 1, "extractedData.supplierNormalized": 1, "extractedData.invoiceNumber": 1 });
+proposalSchema.index({
+  merchantId: 1,
+  "extractedData.supplierNormalized": 1,
+  "extractedData.invoiceNumber": 1,
+});
 
 export const AgentProposal =
-  mongoose.models.AgentProposal ?? mongoose.model("AgentProposal", proposalSchema);
+  mongoose.models.AgentProposal ??
+  mongoose.model("AgentProposal", proposalSchema);
