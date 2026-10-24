@@ -12,14 +12,14 @@ function createProviderClient({
   _logger,
   fetchFn = fetch,
 }) {
-  function signPayload(payload, timestamp) {
-    const message = `${timestamp}.${JSON.stringify(payload)}`;
+  function signPayload(bodyText, timestamp) {
+    const message = `${timestamp}.${bodyText}`;
     return createHmac("sha256", hmacSecret).update(message).digest("hex");
   }
 
-  function buildHeaders(payload, idempotencyKey) {
+  function buildHeaders(bodyText, idempotencyKey) {
     const timestamp = Math.floor(Date.now() / 1000).toString();
-    const signature = signPayload(payload, timestamp);
+    const signature = signPayload(bodyText, timestamp);
     return {
       "Content-Type": "application/json",
       "X-Request-ID": randomUUID(),
@@ -45,10 +45,11 @@ function createProviderClient({
       const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
       try {
+        const bodyText = method === "GET" ? "" : JSON.stringify(payload);
         const response = await fetchFn(url, {
           method,
-          headers: buildHeaders(payload, idempotencyKey),
-          body: JSON.stringify(payload),
+          headers: buildHeaders(bodyText, idempotencyKey),
+          body: method === "GET" ? undefined : bodyText,
           signal: controller.signal,
         });
 
