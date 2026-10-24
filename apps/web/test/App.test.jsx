@@ -4,6 +4,8 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import App from "../src/app/App.jsx";
+import { AuthProvider } from "../src/app/AuthContext.jsx";
+import { authApi } from "../src/lib/apiClient.js";
 
 const livenessPayload = {
   data: {
@@ -37,6 +39,24 @@ function jsonResponse(body, status = 200) {
 }
 
 function renderApp(initialPath = "/") {
+  vi.spyOn(authApi, "me").mockResolvedValue({
+    data: {
+      user: { displayName: "Test User", email: "test@example.com" },
+      membership: { role: "MERCHANT", status: "ACTIVE" },
+      merchant: { name: "Test Merchant" },
+      permissions: [
+        "payments.read",
+        "ledger.read",
+        "system.health.read",
+        "agentpay.read",
+        "risk.dashboard.read",
+        "risk.alerts.read",
+      ],
+      isDemo: false,
+    },
+    meta: { requestId: "test-auth" },
+  });
+
   const client = new QueryClient({
     defaultOptions: {
       queries: { retry: false, staleTime: 0 },
@@ -45,9 +65,11 @@ function renderApp(initialPath = "/") {
 
   return render(
     <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={[initialPath]}>
-        <App />
-      </MemoryRouter>
+      <AuthProvider>
+        <MemoryRouter initialEntries={[initialPath]}>
+          <App />
+        </MemoryRouter>
+      </AuthProvider>
     </QueryClientProvider>,
   );
 }
@@ -55,6 +77,7 @@ function renderApp(initialPath = "/") {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe("Pratyaya web foundation", () => {
@@ -71,12 +94,14 @@ describe("Pratyaya web foundation", () => {
     renderApp("/");
 
     expect(
-      screen.getByText(
+      await screen.findByText(
         /Simulation only — never enter real card, bank, or personal payment data/i,
       ),
     ).toBeInTheDocument();
     expect(await screen.findByText("Ready")).toBeInTheDocument();
-    expect(screen.getByText("Milestone 04")).toBeInTheDocument();
+    expect(
+      await screen.findByText("M10 Full-Stack UI Integration"),
+    ).toBeInTheDocument();
   });
 
   it("navigates to the system health page and shows real dependency rows", async () => {
@@ -91,7 +116,8 @@ describe("Pratyaya web foundation", () => {
     );
 
     renderApp("/");
-    await user.click(screen.getByRole("link", { name: "System health" }));
+    await screen.findByText("M10 Full-Stack UI Integration");
+    await user.click(screen.getByRole("link", { name: "System Health" }));
 
     expect(
       await screen.findByRole("heading", { name: "System health" }),
@@ -127,6 +153,7 @@ describe("Pratyaya web foundation", () => {
     );
 
     renderApp("/health");
+    await screen.findByText("M10 Full-Stack UI Integration");
 
     expect(await screen.findByText("Degraded")).toBeInTheDocument();
     expect(
@@ -146,6 +173,7 @@ describe("Pratyaya web foundation", () => {
     );
 
     renderApp("/health");
+    await screen.findByText("M10 Full-Stack UI Integration");
 
     expect(await screen.findByText("API unreachable")).toBeInTheDocument();
     expect(screen.getByText(/Failed to fetch/i)).toBeInTheDocument();
