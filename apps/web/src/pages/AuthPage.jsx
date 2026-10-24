@@ -2,6 +2,7 @@ import { useState } from "react";
 import { ArrowRight, FlaskConical, ShieldCheck } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { authApi } from "../lib/apiClient.js";
+import { useAuth } from "../app/AuthContext.jsx";
 
 const roles = [
   ["MERCHANT", "Merchant", "Explore accounts and journals"],
@@ -12,6 +13,7 @@ const roles = [
 
 export default function AuthPage({ mode }) {
   const navigate = useNavigate();
+  const { setAuth } = useAuth();
   const [busy, setBusy] = useState(null);
   const [error, setError] = useState("");
   const [form, setForm] = useState({
@@ -26,8 +28,14 @@ export default function AuthPage({ mode }) {
     setBusy("form");
     setError("");
     try {
-      if (mode === "register") await authApi.register(form);
-      else await authApi.login({ email: form.email, password: form.password });
+      const response =
+        mode === "register"
+          ? await authApi.register(form)
+          : await authApi.login({
+              email: form.email,
+              password: form.password,
+            });
+      setAuth(response.data);
       navigate("/ledger");
     } catch (requestError) {
       setError(requestError.message);
@@ -40,7 +48,8 @@ export default function AuthPage({ mode }) {
     setBusy(role);
     setError("");
     try {
-      await authApi.demo(role);
+      const response = await authApi.demo(role);
+      setAuth(response.data);
       navigate("/ledger");
     } catch (requestError) {
       setError(requestError.message);
