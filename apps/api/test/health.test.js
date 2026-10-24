@@ -7,8 +7,7 @@ function testConfig() {
   return parseConfig({
     NODE_ENV: "test",
     LOG_LEVEL: "silent",
-    MONGODB_URI:
-      "mongodb+srv://cluster.example.invalid/pratyaya_test",
+    MONGODB_URI: "mongodb+srv://cluster.example.invalid/pratyaya_test",
   });
 }
 
