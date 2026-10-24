@@ -27,7 +27,10 @@ const policySchema = z
     requireHumanApproval: z.boolean().default(true),
     autoApproveBelowMinor: z
       .string()
-      .regex(MINOR_UNITS_PATTERN, "autoApproveBelowMinor must be an integer digit string")
+      .regex(
+        MINOR_UNITS_PATTERN,
+        "autoApproveBelowMinor must be an integer digit string",
+      )
       .optional(),
     allowedCurrencies: z.array(z.enum(["USD", "INR"])).default(["USD", "INR"]),
     maxInvoiceAgeDays: z.coerce.number().int().min(1).max(365).default(90),
