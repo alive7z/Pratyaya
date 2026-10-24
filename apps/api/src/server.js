@@ -29,7 +29,7 @@ const database = {
 };
 const app = createApp({ database, config, logger });
 
-const server = app.listen(config.apiPort, () => {
+const server = app.listen(config.apiPort, "0.0.0.0", () => {
   logger.info(
     {
       event: "api.started",
