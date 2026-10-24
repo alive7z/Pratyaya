@@ -1,0 +1,49 @@
+{
+  "name": "pratyaya",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Pratyaya \u2014 a synthetic payment reliability and authorization lab",
+  "engines": {
+    "node": ">=24.0.0",
+    "npm": ">=11.0.0"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently --names api,worker,provider,web --prefix-colors blue,yellow,magenta,green \"npm run dev:api\" \"npm run dev:worker\" \"npm run dev:provider\" \"npm run dev:web\"",
+    "dev:api": "npm run dev --workspace @pratyaya/api",
+    "dev:web": "npm run dev --workspace @pratyaya/web",
+    "dev:worker": "npm run dev --workspace @pratyaya/worker",
+    "dev:provider": "npm run dev --workspace @pratyaya/mock-provider",
+    "start:api": "npm run start --workspace @pratyaya/api",
+    "start:web": "npm run preview --workspace @pratyaya/web",
+    "start:worker": "npm run start --workspace @pratyaya/worker",
+    "start:provider": "npm run start --workspace @pratyaya/mock-provider",
+    "build": "npm run build --workspace @pratyaya/web",
+    "lint": "eslint .",
+    "test": "npm run test --workspaces --if-present",
+    "test:integration": "RUN_INTEGRATION_TESTS=1 npm exec --workspace @pratyaya/api -- vitest run --no-file-parallelism",
+    "db:check": "npm run db:check --workspace @pratyaya/api && npm run db:check --workspace @pratyaya/mock-provider && npm run db:check --workspace @pratyaya/worker",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "docker:up": "docker compose --env-file .env up --build",
+    "docker:down": "docker compose --env-file .env down",
+    "docker:logs": "docker compose --env-file .env logs -f",
+    "verify": "npm run format:check && npm run lint && npm test && npm run build",
+    "seed:demo": "npm run seed:demo --workspace @pratyaya/api"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "concurrently": "^10.0.6",
+    "eslint": "^9.39.5",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.7",
+    "globals": "^17.13.0",
+    "jsdom": "^29.1.1",
+    "prettier": "^3.9.10"
+  }
+}

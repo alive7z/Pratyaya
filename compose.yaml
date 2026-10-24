@@ -1,0 +1,123 @@
+name: pratyaya
+
+# This Compose file runs the application processes only.
+# MongoDB is NOT started here. Set MONGODB_URI and PROVIDER_MONGODB_URI to
+# MongoDB Atlas replica-set connection strings in your untracked .env file.
+# Redis/BullMQ is optional and can use a managed Redis service if enabled.
+
+x-node-service: &node-service
+  image: pratyaya-node:local
+  build:
+    context: .
+    dockerfile: infra/docker/node.Dockerfile
+  restart: unless-stopped
+
+services:
+  api:
+    <<: *node-service
+    command: ["node", "apps/api/src/server.js"]
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      API_PORT: 4000
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://localhost:8080}
+      RATE_LIMIT_WINDOW_MS: ${RATE_LIMIT_WINDOW_MS:-60000}
+      RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-120}
+      TRUST_PROXY: "true"
+      MONGODB_URI: ${MONGODB_URI:?MONGODB_URI must be set to a MongoDB Atlas connection string}
+      MONGODB_MAX_POOL_SIZE: ${MONGODB_MAX_POOL_SIZE:-20}
+      MONGODB_MIN_POOL_SIZE: ${MONGODB_MIN_POOL_SIZE:-0}
+      MONGODB_SERVER_SELECTION_TIMEOUT_MS: ${MONGODB_SERVER_SELECTION_TIMEOUT_MS:-5000}
+      MONGODB_CONNECT_TIMEOUT_MS: ${MONGODB_CONNECT_TIMEOUT_MS:-10000}
+      MONGODB_SOCKET_TIMEOUT_MS: ${MONGODB_SOCKET_TIMEOUT_MS:-45000}
+      MONGODB_AUTO_INDEX: ${MONGODB_AUTO_INDEX:-true}
+      AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:?AUTH_JWT_SECRET must be set for non-development deployments}
+      AUTH_ISSUER: ${AUTH_ISSUER:-pratyaya-api}
+      AUTH_AUDIENCE: ${AUTH_AUDIENCE:-pratyaya-web}
+      AUTH_ACCESS_TOKEN_TTL_SECONDS: ${AUTH_ACCESS_TOKEN_TTL_SECONDS:-900}
+      AUTH_REFRESH_TOKEN_TTL_SECONDS: ${AUTH_REFRESH_TOKEN_TTL_SECONDS:-604800}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      DEMO_SESSION_TTL_SECONDS: ${DEMO_SESSION_TTL_SECONDS:-7200}
+      DEMO_RATE_LIMIT_WINDOW_MS: ${DEMO_RATE_LIMIT_WINDOW_MS:-900000}
+      DEMO_RATE_LIMIT_MAX: ${DEMO_RATE_LIMIT_MAX:-30}
+      DEMO_MAX_ACTIVE_SESSIONS_PER_IP: ${DEMO_MAX_ACTIVE_SESSIONS_PER_IP:-10}
+      DEMO_AUTO_SEED: ${DEMO_AUTO_SEED:-true}
+    ports:
+      - "${API_PORT:-4000}:4000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:4000/api/v1/health/ready').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+
+  worker:
+    <<: *node-service
+    command: ["node", "apps/worker/src/index.js"]
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      WORKER_HEALTH_PORT: 4200
+      MONGODB_URI: ${MONGODB_URI:?MONGODB_URI must be set to a MongoDB Atlas connection string}
+      MONGODB_SERVER_SELECTION_TIMEOUT_MS: ${MONGODB_SERVER_SELECTION_TIMEOUT_MS:-5000}
+    ports:
+      - "${WORKER_HEALTH_PORT:-4200}:4200"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:4200/health/ready').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+
+  mock-provider:
+    <<: *node-service
+    command: ["node", "apps/mock-provider/src/server.js"]
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      PROVIDER_PORT: 4100
+      PROVIDER_MONGODB_URI: ${PROVIDER_MONGODB_URI:?PROVIDER_MONGODB_URI must be set to a MongoDB Atlas connection string}
+      MONGODB_MAX_POOL_SIZE: 10
+      MONGODB_SERVER_SELECTION_TIMEOUT_MS: ${MONGODB_SERVER_SELECTION_TIMEOUT_MS:-5000}
+      MONGODB_CONNECT_TIMEOUT_MS: ${MONGODB_CONNECT_TIMEOUT_MS:-10000}
+      MONGODB_SOCKET_TIMEOUT_MS: ${MONGODB_SOCKET_TIMEOUT_MS:-45000}
+      MONGODB_AUTO_INDEX: ${MONGODB_AUTO_INDEX:-true}
+      MOCK_PROVIDER_HMAC_SECRET: ${MOCK_PROVIDER_HMAC_SECRET:-dev-only-mock-provider-secret-change-me}
+    ports:
+      - "${PROVIDER_PORT:-4100}:4100"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:4100/health/ready').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+
+  web:
+    image: pratyaya-web:local
+    build:
+      context: .
+      dockerfile: infra/docker/web.Dockerfile
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped

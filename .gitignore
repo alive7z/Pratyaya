@@ -1,0 +1,26 @@
+# dependencies
+node_modules/
+.pnp/
+
+# environment and secrets
+.env
+.env.*
+!.env.example
+
+# build and test output
+dist/
+coverage/
+.vite/
+*.tsbuildinfo
+test-results/
+playwright-report/
+
+# logs and local runtime files
+*.log
+logs/
+tmp/
+.DS_Store
+
+# editors
+.idea/
+.vscode/
