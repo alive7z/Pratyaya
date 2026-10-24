@@ -1,0 +1,25 @@
+{
+  "name": "@pratyaya/mock-provider",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Independent synthetic payment provider simulator",
+  "scripts": {
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js",
+    "test": "vitest run",
+    "db:check": "node src/db/check.js"
+  },
+  "dependencies": {
+    "dotenv": "^18.0.9",
+    "express": "^5.3.0",
+    "helmet": "^8.3.0",
+    "mongoose": "^9.11.4",
+    "pino": "^10.4.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "supertest": "^7.3.1",
+    "vitest": "^5.0.5"
+  }
+}
