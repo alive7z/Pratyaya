@@ -166,7 +166,8 @@ export function ReliabilityLab() {
           headers: { "Idempotency-Key": `test-${Date.now()}` },
         },
       );
-      const testPaymentId = paymentRes.data.payment.id;
+      const createdPayment = paymentRes.data?.payment || paymentRes.data;
+      const testPaymentId = createdPayment?.id;
       addLog(`Created payment: ${testPaymentId}`);
 
       addLog("Waiting for worker to process authorization...");
@@ -176,7 +177,8 @@ export function ReliabilityLab() {
       const statusRes = await apiClient.get(
         `/api/v1/payments/${testPaymentId}`,
       );
-      const status = statusRes.data.payment.status;
+      const fetchedPayment = statusRes.data?.payment || statusRes.data;
+      const status = fetchedPayment?.status;
       addLog(`Payment status: ${status}`);
 
       addLog("Clearing fault configuration...");
