@@ -7,11 +7,15 @@ import {
   PAYMENT_STATUS,
 } from "@pratyaya/shared";
 import { AppError } from "../../lib/errors.js";
-import { runInTransaction } from "../../lib/transaction.js";
+import {
+  runInTransaction,
+  runFinancialTransaction,
+} from "../../lib/transaction.js";
 import { Payment } from "./payment.model.js";
 import { IdempotencyRecord } from "./idempotency-record.model.js";
 import { OutboxEvent } from "./outbox-event.model.js";
 import { PaymentEvent } from "./payment-event.model.js";
+import { ProviderOperation } from "./operations/provider-operation.model.js";
 import { recordPaymentEvent, toPaymentDto } from "./payment.repository.js";
 import {
   assertTransition,
@@ -23,6 +27,8 @@ import {
   hashIdempotencyKey,
   hashPayload,
 } from "../../lib/idempotency.js";
+import { createPaymentOrchestratorService } from "./operations/payment-orchestrator.service.js";
+import { riskDecisionService } from "../risk/risk-decision.service.js";
 
 function generateReference() {
   const suffix = new mongoose.Types.ObjectId()
@@ -34,6 +40,15 @@ function generateReference() {
 
 function now() {
   return new Date();
+}
+
+let orchestrator;
+
+async function getOrchestrator(config, logger) {
+  if (!orchestrator) {
+    orchestrator = await createPaymentOrchestratorService(config, logger);
+  }
+  return orchestrator;
 }
 
 export async function createPayment({ auth, body, req }) {
@@ -172,6 +187,42 @@ export async function createPayment({ auth, body, req }) {
         throw error;
       }
 
+      const riskResult = await riskDecisionService.evaluateAndRecord(
+        merchantId,
+        payment._id,
+        {
+          amountMinor: payment.amountMinor,
+          currency: payment.currency,
+          customerReference: payment.customerReference,
+          description: payment.description,
+          isDemo: payment.isDemo,
+          reference: payment.reference,
+        },
+        "RULE_ENGINE",
+      );
+
+      if (riskResult.decision === "BLOCK") {
+        await Payment.findOneAndUpdate(
+          { _id: payment._id, merchantId },
+          {
+            $set: {
+              status: PAYMENT_STATUS.FAILED,
+              statusReason: "Blocked by risk engine",
+            },
+          },
+          { session },
+        );
+        throw new AppError(
+          403,
+          "PAYMENT_BLOCKED",
+          "Payment blocked by risk engine",
+          {
+            riskScore: riskResult.score,
+            riskLevel: riskResult.level,
+          },
+        );
+      }
+
       await recordPaymentEvent(
         {
           paymentId: payment._id,
@@ -185,6 +236,9 @@ export async function createPayment({ auth, body, req }) {
           metadata: {
             amountMinor: body.amountMinor,
             currency: body.currency,
+            riskScore: riskResult.score,
+            riskLevel: riskResult.level,
+            riskDecision: riskResult.decision,
           },
           isDemo: Boolean(auth.isDemo),
         },
@@ -203,6 +257,9 @@ export async function createPayment({ auth, body, req }) {
               merchantId: String(merchantId),
               amountMinor: body.amountMinor,
               currency: body.currency,
+              riskScore: riskResult.score,
+              riskLevel: riskResult.level,
+              riskDecision: riskResult.decision,
             },
             state: OUTBOX_STATE.PENDING,
             idempotencyKeyHash: keyHash,
@@ -292,6 +349,43 @@ export async function getPaymentTimeline({ auth, paymentId }) {
   };
 }
 
+export async function getPaymentAttempts({ auth, paymentId }) {
+  const merchantId = auth.merchantId;
+  const payment = await Payment.findOne({ _id: paymentId, merchantId }).lean();
+  if (!payment) {
+    throw new AppError(404, "PAYMENT_NOT_FOUND", "Payment not found");
+  }
+
+  const operations = await ProviderOperation.find({ paymentId, merchantId })
+    .sort({ createdAt: 1, _id: 1 })
+    .lean();
+
+  return {
+    payment: toPaymentDto(payment),
+    attempts: operations.map((op) => ({
+      id: String(op._id),
+      attemptNumber: op.attemptCount + 1,
+      operationType: op.type,
+      providerName: "mock-provider",
+      currentState: op.state,
+      providerOperationId: op.providerOperationId,
+      providerReference: op.providerReference,
+      clientOperationId: op.clientOperationId,
+      latencyMs:
+        op.processingStartedAt && op.processingCompletedAt
+          ? op.processingCompletedAt.getTime() -
+            op.processingStartedAt.getTime()
+          : null,
+      retryReason: op.stateReason,
+      createdAt: op.createdAt,
+      completedAt: op.processingCompletedAt,
+      error: op.faultInjected
+        ? { type: op.faultInjected, message: op.stateReason }
+        : null,
+    })),
+  };
+}
+
 export async function getPaymentSummary({ auth }) {
   const merchantId = auth.merchantId;
   const [total, byStatus] = await Promise.all([
@@ -308,6 +402,65 @@ export async function getPaymentSummary({ auth }) {
   }
 
   return { total, statusCounts };
+}
+
+export async function capturePayment({
+  auth,
+  paymentId,
+  body,
+  idempotencyKey,
+}) {
+  const orchestratorService = await getOrchestrator(auth.config, auth.logger);
+
+  return runFinancialTransaction(
+    async (session) => {
+      const payment = await Payment.findOne({
+        _id: paymentId,
+        merchantId: auth.merchantId,
+      }).session(session);
+      if (!payment) {
+        throw new AppError(404, "PAYMENT_NOT_FOUND", "Payment not found");
+      }
+
+      if (payment.status !== PAYMENT_STATUS.AUTHORIZED) {
+        throw new AppError(
+          409,
+          "INVALID_PAYMENT_STATE",
+          "Only AUTHORIZED payments can be captured",
+          { status: payment.status },
+        );
+      }
+
+      const captureAmount = body.amountMinor
+        ? BigInt(body.amountMinor)
+        : payment.amountMinor;
+      if (captureAmount > payment.amountMinor) {
+        throw new AppError(
+          422,
+          "CAPTURE_EXCEEDS_AUTHORIZED",
+          "Capture amount cannot exceed authorized amount",
+        );
+      }
+
+      const result = await orchestratorService.initiateCapture({
+        auth,
+        paymentId,
+        idempotencyKey,
+        mode: "manual",
+      });
+
+      return {
+        payment: result.payment,
+        providerOperationId: result.providerOperation._id,
+      };
+    },
+    {
+      reconcile: async () => {
+        const payment = await Payment.findById(paymentId).lean();
+        return payment ? { payment: toPaymentDto(payment) } : null;
+      },
+    },
+  );
 }
 
 export async function cancelPayment({ auth, paymentId, req }) {

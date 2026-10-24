@@ -115,7 +115,7 @@ export default function OverviewPage() {
           </p>
         </div>
 
-        <aside className="card bg-gradient-to-br from-blue-600 to-blue-800 text-white">
+        <aside className="card bg-linear-to-br from-blue-600 to-blue-800 text-white">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-100">
             What this milestone proves
           </p>

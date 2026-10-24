@@ -11,6 +11,13 @@ export const RECONCILIATION_RECORD_STATUS = Object.freeze([
   "RESOLVED",
 ]);
 
+export const RECONCILIATION_CASE_STATUS = Object.freeze([
+  "OPEN",
+  "IN_PROGRESS",
+  "RESOLVED",
+  "MANUAL_REVIEW",
+]);
+
 const reconciliationRecordSchema = new mongoose.Schema(
   {
     merchantId: {
@@ -62,3 +69,46 @@ reconciliationRecordSchema.index(
 export const ReconciliationRecord =
   mongoose.models.ReconciliationRecord ??
   mongoose.model("ReconciliationRecord", reconciliationRecordSchema);
+
+const reconciliationCaseSchema = new mongoose.Schema(
+  {
+    merchantId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Merchant",
+      required: true,
+      index: true,
+    },
+    paymentId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Payment",
+      index: true,
+    },
+    refundId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Refund",
+      index: true,
+    },
+    type: { type: String, enum: ["PAYMENT", "REFUND"], required: true },
+    status: {
+      type: String,
+      enum: RECONCILIATION_CASE_STATUS,
+      required: true,
+      default: "OPEN",
+      index: true,
+    },
+    discrepancies: [{ type: mongoose.Schema.Types.Mixed }],
+    resolutionAction: { type: String, trim: true, maxlength: 120 },
+    resolutionMetadata: { type: mongoose.Schema.Types.Mixed },
+    attemptCount: { type: Number, default: 0, min: 0 },
+    lastCheckedAt: { type: Date },
+    isDemo: { type: Boolean, default: false, index: true },
+  },
+  { timestamps: true, versionKey: false },
+);
+
+reconciliationCaseSchema.index({ merchantId: 1, status: 1, createdAt: -1 });
+reconciliationCaseSchema.index({ merchantId: 1, paymentId: 1, status: 1 });
+
+export const ReconciliationCase =
+  mongoose.models.ReconciliationCase ??
+  mongoose.model("ReconciliationCase", reconciliationCaseSchema);

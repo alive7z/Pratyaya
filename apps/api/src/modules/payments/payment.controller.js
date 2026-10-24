@@ -1,8 +1,10 @@
 import { sendData } from "../../lib/response.js";
 import {
   cancelPayment,
+  capturePayment,
   createPayment,
   getPayment,
+  getPaymentAttempts,
   getPaymentSummary,
   getPaymentTimeline,
   listPayments,
@@ -60,6 +62,42 @@ export async function timeline(req, res, next) {
 export async function summary(req, res, next) {
   try {
     const result = await getPaymentSummary({ auth: req.auth });
+    sendData(req, res, result, 200);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function capture(req, res, next) {
+  try {
+    const key = req.headers["idempotency-key"];
+    if (!key) {
+      return res.status(400).json({
+        error: {
+          code: "IDEMPOTENCY_KEY_REQUIRED",
+          message: "Idempotency-Key header is required",
+        },
+        meta: { requestId: req.requestId },
+      });
+    }
+    const result = await capturePayment({
+      auth: req.auth,
+      paymentId: req.validated.params.paymentId,
+      body: req.validated.body,
+      idempotencyKey: key,
+    });
+    sendData(req, res, result, 202);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getAttempts(req, res, next) {
+  try {
+    const result = await getPaymentAttempts({
+      auth: req.auth,
+      paymentId: req.validated.params.paymentId,
+    });
     sendData(req, res, result, 200);
   } catch (error) {
     next(error);

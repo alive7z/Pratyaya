@@ -79,7 +79,7 @@ const providerOperationSchema = new mongoose.Schema(
     processingCompletedAt: { type: Date },
     isDemo: { type: Boolean, default: false, index: true },
   },
-  { timestamps: true, versionKey: false }
+  { timestamps: true, versionKey: false },
 );
 
 providerOperationSchema.index({ merchantId: 1, createdAt: -1 });

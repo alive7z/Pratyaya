@@ -2,8 +2,20 @@ import { createServer } from "node:http";
 import mongoose from "mongoose";
 import { loadWorkerConfig } from "./config.js";
 import { createLogger } from "./logger.js";
+import { connectMongo, disconnectMongo, pingMongo } from "./db/mongoose.js";
+import { Job } from "./modules/jobs/job.model.js";
+import {
+  claimJobs,
+  releaseJob,
+  recoverStaleJobs,
+  createJobsFromOutbox,
+  markOutboxEventDispatched,
+  markOutboxEventFailed,
+} from "./modules/jobs/job.service.js";
+import { processJob } from "./modules/jobs/job-processor.js";
 
 mongoose.set("bufferCommands", false);
+mongoose.set("autoCreate", false);
 
 const config = loadWorkerConfig();
 const logger = createLogger({
@@ -12,27 +24,11 @@ const logger = createLogger({
 });
 
 let shuttingDown = false;
-
-async function pingMongo(timeoutMs = 2000) {
-  if (mongoose.connection.readyState !== 1 || !mongoose.connection.db) {
-    throw new Error("MongoDB is not connected");
-  }
-
-  let timeout;
-  try {
-    await Promise.race([
-      mongoose.connection.db.admin().command({ ping: 1 }),
-      new Promise((_, reject) => {
-        timeout = setTimeout(
-          () => reject(new Error("MongoDB ping timed out")),
-          timeoutMs,
-        );
-      }),
-    ]);
-  } finally {
-    clearTimeout(timeout);
-  }
-}
+let workerId = `worker-${process.pid}-${Date.now()}`;
+let processingInterval = null;
+const POLL_INTERVAL_MS = 5000;
+const MAX_JOBS_PER_POLL = 10;
+const LEASE_DURATION_MS = 30000;
 
 function sendJson(res, statusCode, body) {
   res.writeHead(statusCode, {
@@ -69,10 +65,185 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (req.method === "GET" && req.url === "/health/jobs") {
+    try {
+      const pendingCount = await Job.countDocuments({
+        status: { $in: ["PENDING", "RETRY"] },
+      });
+      const processingCount = await Job.countDocuments({
+        status: "PROCESSING",
+      });
+      const deadLetterCount = await Job.countDocuments({
+        status: "DEAD_LETTER",
+      });
+      sendJson(res, 200, {
+        status: "ok",
+        service: config.service.name,
+        jobs: {
+          pending: pendingCount,
+          processing: processingCount,
+          deadLetter: deadLetterCount,
+        },
+      });
+    } catch {
+      sendJson(res, 503, {
+        status: "not_ready",
+        service: config.service.name,
+      });
+    }
+    return;
+  }
+
   sendJson(res, 404, {
     error: { code: "NOT_FOUND", message: "Route not found" },
   });
 });
+
+async function processJobsLoop() {
+  if (shuttingDown) return;
+
+  const session = await mongoose.startSession();
+  try {
+    const claimedJobs = await claimJobs({
+      workerId,
+      maxJobs: MAX_JOBS_PER_POLL,
+      leaseDurationMs: LEASE_DURATION_MS,
+      session,
+    });
+
+    for (const job of claimedJobs) {
+      if (shuttingDown) break;
+
+      let success = false;
+      let error = null;
+      try {
+        await processJob(job, workerId);
+        success = true;
+      } catch (err) {
+        error = err;
+        logger.error(
+          {
+            event: "job.process_error",
+            jobId: job.jobId,
+            type: job.type,
+            err: err,
+          },
+          "Job processing error",
+        );
+      }
+
+      await releaseJob({
+        jobId: job._id,
+        workerId,
+        leaseToken: job.leaseToken,
+        success,
+        error,
+        session,
+      });
+
+      if (success && job.payload?.outboxEventId) {
+        await markOutboxEventDispatched({
+          outboxEventId: job.payload.outboxEventId,
+          workerId,
+          session,
+        });
+      } else if (!success && job.payload?.outboxEventId) {
+        await markOutboxEventFailed({
+          outboxEventId: job.payload.outboxEventId,
+          workerId,
+          error,
+          session,
+        });
+      }
+    }
+  } catch (error) {
+    logger.error(
+      { event: "worker.jobs_loop_error", err: error },
+      "Jobs loop error",
+    );
+  } finally {
+    await session.endSession();
+  }
+}
+
+async function outboxRelayLoop() {
+  if (shuttingDown) return;
+
+  const session = await mongoose.startSession();
+  try {
+    await createJobsFromOutbox({ workerId, batchSize: 20, session });
+  } catch (error) {
+    logger.error(
+      { event: "worker.outbox_relay_error", err: error },
+      "Outbox relay error",
+    );
+  } finally {
+    await session.endSession();
+  }
+}
+
+async function staleJobRecoveryLoop() {
+  if (shuttingDown) return;
+
+  const session = await mongoose.startSession();
+  try {
+    const recovered = await recoverStaleJobs({
+      workerId,
+      leaseDurationMs: LEASE_DURATION_MS,
+      session,
+    });
+    if (recovered.length > 0) {
+      logger.info(
+        { event: "worker.stale_jobs_recovered", count: recovered.length },
+        "Recovered stale jobs",
+      );
+    }
+  } catch (error) {
+    logger.error(
+      { event: "worker.stale_recovery_error", err: error },
+      "Stale job recovery error",
+    );
+  } finally {
+    await session.endSession();
+  }
+}
+
+async function startProcessingLoops() {
+  logger.info(
+    { event: "worker.processing_started" },
+    "Starting job processing loops",
+  );
+
+  processingInterval = setInterval(() => {
+    processJobsLoop().catch((err) => {
+      logger.error(
+        { event: "worker.process_loop_crash", err },
+        "Process jobs loop crashed",
+      );
+    });
+  }, POLL_INTERVAL_MS);
+
+  setInterval(() => {
+    outboxRelayLoop().catch((err) => {
+      logger.error(
+        { event: "worker.outbox_loop_crash", err },
+        "Outbox relay loop crashed",
+      );
+    });
+  }, POLL_INTERVAL_MS * 2);
+
+  setInterval(() => {
+    staleJobRecoveryLoop().catch((err) => {
+      logger.error(
+        { event: "worker.recovery_loop_crash", err },
+        "Stale recovery loop crashed",
+      );
+    });
+  }, 60000);
+
+  await processJobsLoop();
+  await outboxRelayLoop();
+}
 
 async function shutdown(signal) {
   if (shuttingDown) return;
@@ -82,6 +253,10 @@ async function shutdown(signal) {
     { event: "worker.shutdown", signal },
     "Shutting down Pratyaya worker",
   );
+
+  if (processingInterval) {
+    clearInterval(processingInterval);
+  }
 
   const forceExit = setTimeout(() => {
     logger.fatal(
@@ -93,21 +268,16 @@ async function shutdown(signal) {
   forceExit.unref();
 
   await new Promise((resolve) => server.close(resolve));
-  await mongoose.disconnect();
+  await disconnectMongo();
   clearTimeout(forceExit);
   logger.info({ event: "worker.stopped" }, "Pratyaya worker stopped");
   process.exit(0);
 }
 
 async function start() {
-  await mongoose.connect(config.mongodbUri, {
-    appName: config.service.name,
-    maxPoolSize: 5,
-    serverSelectionTimeoutMS: config.mongodbServerSelectionTimeoutMs,
-    connectTimeoutMS: 10_000,
-    socketTimeoutMS: 45_000,
-    autoIndex: false,
-  });
+  await connectMongo(config, logger);
+
+  await Job.init();
 
   server.listen(config.healthPort, () => {
     logger.info(
@@ -115,10 +285,13 @@ async function start() {
         event: "worker.started",
         nodeEnv: config.nodeEnv,
         healthPort: config.healthPort,
+        workerId,
       },
-      "Pratyaya worker foundation is ready. No job processors are registered yet.",
+      "Pratyaya worker started with job processing enabled",
     );
   });
+
+  await startProcessingLoops();
 }
 
 process.on("SIGINT", () => void shutdown("SIGINT"));

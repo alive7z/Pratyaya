@@ -31,3 +31,5 @@ export function formatMinorUnits(value, currency) {
     currency === "INR" ? "₹" : currency === "USD" ? "$" : `${currency} `;
   return `${negative ? "−" : ""}${symbol}${whole}.${fraction}`;
 }
+
+export const formatMoney = formatMinorUnits;

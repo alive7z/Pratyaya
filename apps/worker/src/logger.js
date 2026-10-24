@@ -1,28 +1,27 @@
 import pino from "pino";
 
-export function createLogger({
-  level = "info",
-  service = "pratyaya-worker",
-} = {}) {
+export function createLogger({ level = "info", service = "pratyaya-worker" }) {
   return pino({
     level,
     base: { service },
-    timestamp: pino.stdTimeFunctions.isoTime,
-    serializers: {
-      err: (error) => ({
-        type: error.name,
-        message: String(error.message).replace(
-          /mongodb(?:\+srv)?:\/\/[^\s"']+/gi,
-          "[REDACTED_MONGODB_URI]",
-        ),
-        stack: String(error.stack ?? "").replace(
-          /mongodb(?:\+srv)?:\/\/[^\s"']+/gi,
-          "[REDACTED_MONGODB_URI]",
-        ),
-      }),
+    formatters: {
+      level(label) {
+        return { level: label };
+      },
     },
+    timestamp: pino.stdTimeFunctions.isoTime,
     redact: {
-      paths: ["password", "secret", "token", "authorization"],
+      paths: [
+        "*.password",
+        "*.secret",
+        "*.token",
+        "*.authorization",
+        "*.cookie",
+        "*.mongodbUri",
+        "*.hmacSecret",
+        "req.headers.authorization",
+        "req.headers.cookie",
+      ],
       censor: "[REDACTED]",
     },
   });

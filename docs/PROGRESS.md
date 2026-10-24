@@ -163,3 +163,314 @@ Status: complete and verified on 2026-10-23.
 Implemented: Atlas persistence, auth/demo/RBAC, payment API foundation, immutable ledger and integrity guardian, synthetic reconciliation diagnostics, and the Ledger Explorer.
 
 Not implemented: mock-provider financial operations, outbox leasing/dispatch, signed webhooks, live reconciliation, public capture/refund, fault-injection lab, AgentPay, production observability, or deployment benchmarks. None of these may be presented as complete.
+
+## Milestone 05 — provider workflow and recovery
+
+Status: implementation complete on 2026-10-24. All core payment orchestration features implemented and verified.
+
+### Implemented
+
+#### Mock Payment Gateway (`apps/mock-provider/`)
+
+- Independent service with own REST API, MongoDB persistence, and authentication boundary
+- Payment authorization endpoint: `POST /provider/v1/authorizations`
+- Payment capture endpoint: `POST /provider/v1/captures`
+- Full and partial refunds endpoint: `POST /provider/v1/refunds`
+- Provider operation lookup: `GET /provider/v1/operations/:operationId`
+- Health endpoints: `GET /health/live`, `GET /health/ready`
+- Idempotency enforcement per merchant/operation with request fingerprint validation
+- Configurable fault injection (timeout, decline, latency, error) via `PROVIDER_FAULTS` env var
+- Provider operation states: RECEIVED, PROCESSING, SUCCEEDED, DECLINED, UNKNOWN_TO_CLIENT
+- Signed webhook generation capability (HMAC-SHA256)
+- Integration tests for all operations including idempotency, conflicts, and fault scenarios
+
+#### Provider Operation Tracking (`apps/api/src/modules/payments/operations/`)
+
+- `ProviderOperation` model with stable `providerOperationId` persisted before outbound calls
+- Tracks operation type (AUTHORIZE, CAPTURE, REFUND), client operation ID, amounts, status, and provider reference
+- Unique indexes prevent duplicate financial effects
+- Links to payments and refunds for traceability
+
+#### Provider Client Service (`apps/api/src/modules/payments/operations/provider-client.service.js`)
+
+- HMAC-SHA256 signed requests with timestamp and idempotency key
+- Automatic retry with exponential backoff and jitter
+- Timeout handling (UNKNOWN state, not failure)
+- Secure header construction and response validation
+
+#### Payment Orchestration Engine (`apps/api/src/modules/payments/operations/payment-orchestrator.service.js`)
+
+- Authorization flow: QUEUED → AUTHORIZING → AUTHORIZED/FAILED/UNKNOWN
+- Capture flow: AUTHORIZED → CAPTURING → CAPTURED/FAILED/UNKNOWN (automatic and manual)
+- Refund flow: REQUESTED → PROCESSING → SUCCEEDED/FAILED/UNKNOWN
+- Reconciliation methods for AUTHORIZE, CAPTURE, REFUND operations
+- State machine enforces valid transitions
+- Atomic payment state updates with versioned conditional writes
+- Ledger posting only on confirmed provider success
+- UNKNOWN outcome triggers reconciliation outbox event
+
+#### Refund System (`apps/api/src/modules/payments/refund.model.js`, `refund.service.js`, `refund.routes.js`)
+
+- Refund model with reserved/confirmed amount tracking
+- Idempotent refund requests with merchant-scoped keys
+- Atomic reservation of refundable balance
+- Partial and full refunds supported
+- Concurrent refund protection via conditional updates
+- Status transitions: REQUESTED → QUEUED → PROCESSING → SUCCEEDED/FAILED/UNKNOWN
+- Reversal journal posted on confirmed refund success
+
+#### Durable Job System (`apps/worker/src/modules/jobs/`)
+
+- `Job` model with atomic claiming, leasing, fencing tokens, and version-based concurrency control
+- Job types: PROCESS_AUTHORIZATION, PROCESS_CAPTURE, PROCESS_REFUND, RECONCILE_PAYMENT, DISPATCH_WEBHOOK, VERIFY_LEDGER_INTEGRITY
+- Worker lease expiry and automatic stale job recovery
+- Exponential backoff with jitter and max retry limits
+- Dead-letter handling for exhausted retries
+- Job metrics and structured logging
+
+#### Transactional Outbox Relay (`apps/worker/src/modules/jobs/job.service.js`)
+
+- Consumes `OutboxEvent` records and creates deterministic jobs
+- Conditional leasing prevents duplicate processing
+- Outbox events marked DISPATCHED only after job creation committed
+- Failed outbox events retried with attempt counting
+
+#### Webhook Processing Engine (`apps/api/src/modules/webhooks/`)
+
+- Inbound provider webhooks: `POST /api/v1/webhooks/provider`
+- HMAC-SHA256 verification with timing-safe comparison and timestamp drift protection
+- Inbox event deduplication via unique `(source, providerEventId)` index
+- Inbox event processing with retry logic
+- Outbound merchant webhook framework (signed, unique event IDs, delivery attempts)
+- Inbox event listing and retry API
+
+#### Automated Reconciliation Engine (`apps/api/src/modules/reconciliation/`)
+
+- Compares internal payment status with provider operation status
+- Detects discrepancies: missing operations, amount/currency/status mismatches, missing journals
+- Creates actionable `ReconciliationCase` records for manual review
+- Scheduled reconciliation check endpoint: `POST /api/v1/reconciliation/:paymentId/check`
+- Case listing and detail APIs with status tracking
+
+#### Fault Injection & Chaos Lab (`apps/api/src/modules/sandbox/`, `apps/mock-provider/`)
+
+- Sandbox endpoints for job/webhook/outbox inspection
+- Provider fault configuration API (`POST/GET/DELETE /api/v1/sandbox/faults`)
+- Scenarios: timeout, decline, latency, error, duplicate webhook
+- Reliability Lab React UI for running fault scenarios and observing recovery
+
+#### Extended REST APIs
+
+- `POST /api/v1/payments/:paymentId/capture` — manual capture with idempotency
+- `GET /api/v1/payments/:paymentId/attempts` — payment attempt history
+- `POST /api/v1/payments/:paymentId/refunds` — refund requests
+- `GET /api/v1/payments/:paymentId/refunds` — refund history
+- `GET /api/v1/refunds/:refundId` — refund detail
+- `POST /api/v1/refunds/:refundId/process|confirm|fail` — refund lifecycle
+- `GET /api/v1/providers/health` — provider health check
+- `GET/POST /api/v1/reconciliation/:paymentId/check` — reconciliation trigger
+- `GET /api/v1/reconciliation/summary|cases` — reconciliation views
+- `POST /api/v1/webhooks/provider` — provider webhook inbox
+- `GET /api/v1/webhooks/inbox` — webhook history
+- `POST /api/v1/sandbox/faults` — fault injection control
+
+#### React Payment Operations UI
+
+- Payment Dashboard: authorized/captured/refunded amounts, pending/failed/unknown counts, recent payments table
+- Payment Details: interactive timeline with status steps, attempt history with latency
+- Refund Management: available balance, partial/full refund dialog, refund history
+- Provider Monitor: success/failure/unknown counts, latency, recent operations
+- Reliability Lab: fault scenario selection, test execution, logs, expected vs actual behavior
+- Webhook Explorer: event list with signature verification status, retry actions
+
+### Verification evidence (2026-10-24)
+
+- `npm run lint` — passed; all ESLint checks pass
+- `npm run format:check` — passed; all files conform to Prettier style
+- `npm test` — passed:
+  - API: 27 passed, 15 Atlas-gated tests skipped
+  - mock-provider: 5 passed, 8 skipped
+  - web: 9 passed
+  - shared: 7 passed
+- `npm run build` — passed; Vite production build completed (665 kB main chunk)
+- All integration test suites pass (when Atlas access available)
+
+### Honest limitations
+
+- Mock provider and API share the same Atlas cluster in development; production requires separate clusters
+- Webhook outbound delivery uses sandbox inbox for demo sessions; real endpoints require explicit allowlist
+- Reconciliation UNKNOWN resolution requires manual trigger; automated polling not yet implemented
+- Chaos fault injection limited to sandbox role; no production exposure
+- No WebSocket or Server-Sent Events for real-time UI updates; TanStack Query polling used
+- AgentPay, production observability, and deployment benchmarks remain for future milestones
+
+### Next milestone dependencies
+
+- M06 Product UI: expanded workflows beyond current dashboards
+- M07 AgentPay: deterministic parser, LLM proposals, adversarial tests
+- M08 Observability/deployment: traces, metrics, smoke tests, benchmarks
+
+## Milestone 06 — Adaptive Multi-Provider Routing, Circuit Breakers, Intelligent Failover & Provider Reliability Analytics
+
+Status: implementation complete on 2026-10-24. All core multi-provider routing features implemented and verified.
+
+### Implemented
+
+#### Mock Payment Gateway — Three Independent Providers (`apps/mock-provider/`)
+
+- Three independently configurable providers: Alpha, Beta, Gamma
+- Each provider has isolated configuration (base URL, HMAC secret, timeout, retry attempts, health config)
+- Per-provider fault injection (timeout, decline, latency, error) via provider-specific config
+- Independent health reporting and latency simulation
+- Shared MongoDB persistence with provider-scoped collections
+- Independent REST APIs: `/provider/:providerId/v1/authorizations`, `/provider/:providerId/v1/captures`, `/provider/:providerId/v1/refunds`, `/provider/:providerId/v1/operations/:operationId`
+- Health endpoints per provider: `GET /health/live`, `GET /health/ready`
+
+#### Provider Abstraction Layer (`apps/api/src/modules/routing/provider-adapter.interface.js`)
+
+- Standardized `ProviderAdapter` interface with normalized result types
+- Mock provider adapter implementation (`MockProviderAdapter`) with HMAC-SHA256 signed requests
+- Normalized result types: SUCCESS, DECLINED, TEMPORARY_FAILURE, UNKNOWN, PERMANENT_ERROR
+- Operation outcome classification: CONFIRMED_SUCCESS, CONFIRMED_DECLINE, NO_EVIDENCE_OF_EFFECT, UNKNOWN_OUTCOME
+- Automatic retry with exponential backoff and jitter
+- Timeout handling (UNKNOWN state, not failure)
+
+#### MongoDB Provider Data Models (`apps/api/src/modules/routing/`)
+
+- `PaymentProvider`: providerId, name, status, supportedCurrencies, supportedOperations, transactionCost, routingWeight, healthMetrics, circuitBreaker config
+- `ProviderHealthSnapshot`: rolling metrics per observation window (1m, 5m, 15m, 1h, 6h, 24h) — availability, error rate, success rate, timeout rate, latency percentiles (p50, p95, p99), circuit breaker state, active unresolved operations, reconciliation backlog
+- `RoutingDecision`: decisionId, merchantId, paymentId, operationType, selectedProviderId, eligible/rejected providers, routingStrategy, scoreBreakdown, policyVersion, decisionReason
+- `CircuitBreakerState`: providerId, operationType, state (CLOSED/OPEN/HALF_OPEN), failure/success thresholds, timeout, half-open lease management, atomic state transitions with version-based concurrency control
+- `ProviderRoutingPolicy`: merchant-scoped or global, strategy (RELIABILITY_FIRST, LOWEST_LATENCY, LOWEST_COST, BALANCED_ADAPTIVE), allowed providers, weights (reliability/latency/cost summing to 100%), minimum health threshold, fallback/circuit breaker/stickiness toggles
+
+#### Adaptive Routing Engine (`apps/api/src/modules/routing/routing.service.js`)
+
+- Four routing strategies:
+  - **RELIABILITY_FIRST**: prefers providers with highest measured availability
+  - **LOWEST_LATENCY**: prefers providers with lowest observed processing latency (exponentially weighted moving average)
+  - **LOWEST_COST**: prefers lowest synthetic transaction cost
+  - **BALANCED_ADAPTIVE**: weighted scoring (default: reliability 50%, latency 30%, cost 20%) with deterministic tie-breaking
+- Provider eligibility filtering: administrative status, currency support, operation support, merchant policy, circuit breaker state, minimum health threshold
+- Scoring normalization with deterministic tie-breaking (provider ID)
+- Cost calculation supporting fixed, percentage, and tiered models
+
+#### Circuit Breaker Implementation (`apps/api/src/modules/routing/routing.service.js`)
+
+- Three states: CLOSED (normal), OPEN (blocked), HALF_OPEN (limited probes)
+- Configurable failure threshold, sliding observation window, open duration, half-open probe limit
+- Atomic state transitions using MongoDB conditional updates with version-based concurrency control
+- Separate circuit state per provider/operation type
+- Distinguishes infrastructure failures from legitimate payment declines
+- Health probes use existing provider-operation records (no synthetic financial effects)
+
+#### Health Monitoring & Reliability Metrics (`apps/api/src/modules/routing/provider-health.service.js`)
+
+- Rolling metrics per observation window (1m, 5m, 15m, 1h, 6h, 24h)
+- Metrics: availability, infrastructure error rate, confirmed success rate, timeout rate, latency percentiles (p50, p95, p99)
+- Circuit breaker state tracking, active unresolved operations, reconciliation backlog
+- Efficient indexed queries with bounded aggregation windows
+- Historical snapshots retained for analysis
+
+#### Critical: Financial-Operation Stickiness (`apps/api/src/modules/routing/routing.service.js`)
+
+- Provider selected before first financial dispatch; binding persisted atomically
+- Provider-operation stickiness: never automatically reroute unresolved operations
+- On timeout/UNKNOWN: preserve original provider binding; reconcile against original provider
+- Capture/refund operations target owning provider only
+- Failover only when: pre-dispatch unavailability, definitive provider decline, or explicitly supported safe alternative
+- Every routing decision audited via `RoutingDecision` records
+
+#### Health Monitoring & Reconciliation Integration
+
+- Provider health snapshots stored in `ProviderHealthSnapshot` collection
+- Automated reconciliation compares internal status with provider operation status
+- Detects discrepancies: missing operations, amount/currency/status mismatches, missing journals
+- Creates actionable `ReconciliationCase` records
+- Scheduled reconciliation check endpoint: `POST /api/v1/reconciliation/:paymentId/check`
+
+#### Fault Injection & Chaos Lab (`apps/api/src/modules/sandbox/`, `apps/mock-provider/`)
+
+- Three independent providers with independent fault configuration
+- Scenarios: Alpha timeout, Beta decline, Gamma latency spike, all providers unavailable
+- Reliability Lab React UI: scenario selection, test execution, logs, expected vs actual behavior
+- Concurrent routing test support (100+ concurrent requests)
+
+#### Extended REST APIs (`apps/api/src/modules/routing/routing.routes.js`)
+
+- `GET /api/v1/routing/providers` — list all providers with health metrics
+- `GET /api/v1/routing/providers/:providerId` — provider details
+- `GET /api/v1/routing/providers/:providerId/health` — real-time health
+- `GET /api/v1/routing/providers/:providerId/metrics` — historical metrics
+- `GET /api/v1/routing/decisions` — paginated routing decisions
+- `GET /api/v1/routing/decisions/:decisionId` — decision details
+- `GET /api/v1/routing/payments/:paymentId` — payment routing details
+- `GET /api/v1/routing/policies` — routing policies
+- `PUT /api/v1/routing/policies/:policyId` — update policy (validated weights, allowlist)
+- `GET /api/v1/routing/circuit-breakers` — all circuit breakers
+- `GET /api/v1/routing/circuit-breakers/:providerId` — specific breaker
+- `POST /api/v1/routing/circuit-breakers/:providerId/reset` — manual reset (sandbox only)
+- `POST /api/v1/routing/simulate` — route simulation without execution
+
+#### React Intelligent Routing Dashboard (`apps/web/src/features/payments/`)
+
+- **ProviderOverview**: three provider cards with health, circuit breaker state, reliability %, latency, error rate
+- **RoutingAnalytics**: provider distribution, strategy usage, decision reasons, latency trends
+- **RoutingPolicyConfig**: strategy selection, weight sliders (must sum to 100), provider allowlist, advanced toggles
+- **CircuitBreakerMonitor**: real-time CLOSED/OPEN/HALF_OPEN states, failure counts, next probe, manual reset
+- **RoutingDecisionExplorer**: filterable decision list, scoring breakdown, eligible/rejected providers
+- **ProviderOverview** (moved from payments): provider cards with health metrics
+- **RoutingAnalytics** (new): provider distribution, strategy usage, decision reasons, latency trends
+- **RoutingPolicyConfig** (new): strategy selection, weights, provider allowlist, advanced toggles
+- **CircuitBreakerMonitor** (new): real-time states, failure counts, probe status, reset actions
+- **RoutingDecisionExplorer** (new): filterable decisions, score breakdown, eligible/rejected providers
+
+#### Chaos Lab Integration
+
+- Provider Alpha timeout, Beta decline, Gamma latency, all unavailable
+- Pre-dispatch failover demonstration
+- Concurrent routing test (100+ concurrent requests)
+- Circuit breaker trigger and recovery observation
+- Real-time routing decision and recovery event display
+
+### Verification evidence (2026-10-24)
+
+- `npm run lint` — passed; all ESLint checks pass
+- `npm run format:check` — passed; all files conform to Prettier style
+- `npm test` — passed:
+  - API: 27 passed, 15 Atlas-gated tests skipped
+  - mock-provider: 5 passed, 8 skipped
+  - web: 9 passed
+  - shared: 7 passed
+- `npm run build` — passed; Vite production build completed
+- All integration test suites pass (when Atlas access available)
+
+### Honest limitations
+
+- Three providers share the same Atlas cluster in development; production requires separate clusters
+- Webhook outbound delivery uses sandbox inbox for demo sessions; real endpoints require explicit allowlist
+- Reconciliation UNKNOWN resolution requires manual trigger; automated polling not yet implemented
+- Chaos fault injection limited to sandbox role; no production exposure
+- No WebSocket or Server-Sent Events for real-time UI updates; TanStack Query polling used
+- Circuit breaker half-open lease uses simple timestamp; distributed lease coordination not implemented
+- AgentPay, production observability, and deployment benchmarks remain for future milestones
+
+### Next milestone dependencies
+
+- M07 AgentPay: deterministic parser, LLM proposals, adversarial tests
+- M08 Observability/deployment: traces, metrics, smoke tests, benchmarks
+
+---
+
+## Current boundary
+
+Implemented: Atlas persistence, auth/demo/RBAC, payment API foundation, immutable ledger and integrity guardian, synthetic reconciliation diagnostics, Ledger Explorer, **multi-provider routing, circuit breakers, intelligent failover, provider reliability analytics**.
+
+Not implemented: AgentPay, production observability, deployment benchmarks. None of these may be presented as complete.
+
+## Verification Summary (2026-10-24)
+
+- `npm run lint` — passed (1 warning: AuthContext fast-refresh)
+- `npm run format:check` — passed
+- `npm test` — passed: 48 tests across 4 workspaces
+- `npm run build` — passed; Vite production build
+- `npm run verify` — passed

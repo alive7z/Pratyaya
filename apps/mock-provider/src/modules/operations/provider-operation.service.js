@@ -1,23 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
-import mongoose from "mongoose";
 import {
   ProviderOperation,
   PROVIDER_OPERATION_STATUS,
   PROVIDER_OPERATION_TYPES,
 } from "./provider-operation.model.js";
-import { AppError } from "../../../api/src/lib/errors.js";
-
-const FAULT_TYPES = Object.freeze({
-  TIMEOUT: "timeout",
-  DECLINE: "decline",
-  LATENCY: "latency",
-  ERROR: "error",
-  DUPLICATE_WEBHOOK: "duplicate_webhook",
-});
-
-function generateProviderReference() {
-  return `PROV-${randomUUID().slice(0, 12).toUpperCase()}`;
-}
+import { AppError } from "../../lib/errors.js";
 
 function hashPayload(payload) {
   return createHash("sha256")
@@ -26,38 +13,41 @@ function hashPayload(payload) {
     .slice(0, 64);
 }
 
-function getFaultConfig(config) {
-  if (!config?.faults?.enabled) return null;
-  const faults = config.faults.rules ?? [];
+function getFaultConfig(providerConfig) {
+  if (!providerConfig?.faults?.enabled) return null;
+  const faults = providerConfig.faults.rules ?? [];
   return faults.find((f) => f.enabled === true) ?? null;
 }
 
-async function applyFault(fault, operation, config) {
+async function applyFault(fault) {
   if (!fault) return null;
 
   switch (fault.type) {
-    case FAULT_TYPES.TIMEOUT: {
+    case "timeout": {
       const delayMs = fault.delayMs ?? 30000;
       await new Promise((resolve) => setTimeout(resolve, delayMs));
-      return { type: FAULT_TYPES.TIMEOUT, message: "Simulated provider timeout" };
+      return {
+        type: "timeout",
+        message: "Simulated provider timeout",
+      };
     }
-    case FAULT_TYPES.LATENCY: {
+    case "latency": {
       const delayMs = fault.delayMs ?? 2000;
       await new Promise((resolve) => setTimeout(resolve, delayMs));
       return null;
     }
-    case FAULT_TYPES.DECLINE: {
+    case "decline": {
       return {
-        type: FAULT_TYPES.DECLINE,
+        type: "decline",
         message: fault.message ?? "Simulated provider decline",
         code: fault.code ?? "PROVIDER_DECLINED",
       };
     }
-    case FAULT_TYPES.ERROR: {
+    case "error": {
       throw new AppError(
         fault.statusCode ?? 500,
         fault.code ?? "PROVIDER_ERROR",
-        fault.message ?? "Simulated provider error"
+        fault.message ?? "Simulated provider error",
       );
     }
     default:
@@ -65,7 +55,12 @@ async function applyFault(fault, operation, config) {
   }
 }
 
-export async function createAuthorization({ body, config, session, isDemo }) {
+export async function createAuthorization({
+  body,
+  providerConfig,
+  session,
+  isDemo,
+}) {
   const {
     clientOperationId,
     amountMinor,
@@ -86,12 +81,17 @@ export async function createAuthorization({ body, config, session, isDemo }) {
     metadata,
   };
 
-  const fingerprint = hashPayload({ clientOperationId, amountMinor, currency, paymentMethod });
+  const fingerprint = hashPayload({
+    clientOperationId,
+    amountMinor,
+    currency,
+    paymentMethod,
+  });
 
   const existing = await ProviderOperation.findOne(
     { idempotencyKey, type: PROVIDER_OPERATION_TYPES.AUTHORIZATION },
     null,
-    { session }
+    { session },
   ).lean();
 
   if (existing) {
@@ -100,7 +100,7 @@ export async function createAuthorization({ body, config, session, isDemo }) {
         409,
         "IDEMPOTENCY_CONFLICT",
         "Idempotency key used with different request payload",
-        { operationId: existing.operationId }
+        { operationId: existing.operationId },
       );
     }
     return { operation: existing, idempotent: true };
@@ -108,7 +108,7 @@ export async function createAuthorization({ body, config, session, isDemo }) {
 
   const operationId = `op_${randomUUID().replace(/-/g, "").slice(0, 24)}`;
 
-  const fault = getFaultConfig(config);
+  const fault = getFaultConfig(providerConfig);
   let status = PROVIDER_OPERATION_STATUS.RECEIVED;
   let statusReason = null;
   let responsePayload = null;
@@ -131,7 +131,7 @@ export async function createAuthorization({ body, config, session, isDemo }) {
         isDemo,
       },
     ],
-    { session }
+    { session },
   );
 
   await ProviderOperation.updateOne(
@@ -142,12 +142,12 @@ export async function createAuthorization({ body, config, session, isDemo }) {
         processingStartedAt: new Date(),
       },
     },
-    { session }
+    { session },
   );
 
-  const faultResult = await applyFault(fault, operation, config);
+  const faultResult = await applyFault(fault);
 
-  if (faultResult?.type === FAULT_TYPES.TIMEOUT) {
+  if (faultResult?.type === "timeout") {
     await ProviderOperation.updateOne(
       { _id: operation._id },
       {
@@ -155,23 +155,29 @@ export async function createAuthorization({ body, config, session, isDemo }) {
           status: PROVIDER_OPERATION_STATUS.UNKNOWN_TO_CLIENT,
           statusReason: "Provider timeout - outcome unknown to client",
           processingCompletedAt: new Date(),
-          faultInjected: FAULT_TYPES.TIMEOUT,
+          faultInjected: "timeout",
         },
       },
-      { session }
+      { session },
     );
-    const updated = await ProviderOperation.findById(operation._id).session(session).lean();
+    const updated = await ProviderOperation.findById(operation._id)
+      .session(session)
+      .lean();
     return { operation: updated, idempotent: false, timeout: true };
   }
 
-  if (faultResult?.type === FAULT_TYPES.DECLINE) {
+  if (faultResult?.type === "decline") {
     status = PROVIDER_OPERATION_STATUS.DECLINED;
     statusReason = faultResult.message;
-    responsePayload = { declined: true, code: faultResult.code, message: faultResult.message };
-    faultInjected = FAULT_TYPES.DECLINE;
+    responsePayload = {
+      declined: true,
+      code: faultResult.code,
+      message: faultResult.message,
+    };
+    faultInjected = "decline";
   } else {
     status = PROVIDER_OPERATION_STATUS.SUCCEEDED;
-    providerReference = generateProviderReference();
+    providerReference = `PROV-${randomUUID().slice(0, 12).toUpperCase()}`;
     responsePayload = {
       authorized: true,
       providerReference,
@@ -192,14 +198,16 @@ export async function createAuthorization({ body, config, session, isDemo }) {
         faultInjected,
       },
     },
-    { session }
+    { session },
   );
 
-  const updated = await ProviderOperation.findById(operation._id).session(session).lean();
+  const updated = await ProviderOperation.findById(operation._id)
+    .session(session)
+    .lean();
   return { operation: updated, idempotent: false };
 }
 
-export async function createCapture({ body, config, session, isDemo }) {
+export async function createCapture({ body, providerConfig, session, isDemo }) {
   const {
     clientOperationId,
     authorizationOperationId,
@@ -228,7 +236,7 @@ export async function createCapture({ body, config, session, isDemo }) {
   const existing = await ProviderOperation.findOne(
     { idempotencyKey, type: PROVIDER_OPERATION_TYPES.CAPTURE },
     null,
-    { session }
+    { session },
   ).lean();
 
   if (existing) {
@@ -237,7 +245,7 @@ export async function createCapture({ body, config, session, isDemo }) {
         409,
         "IDEMPOTENCY_CONFLICT",
         "Idempotency key used with different request payload",
-        { operationId: existing.operationId }
+        { operationId: existing.operationId },
       );
     }
     return { operation: existing, idempotent: true };
@@ -245,7 +253,7 @@ export async function createCapture({ body, config, session, isDemo }) {
 
   const operationId = `op_${randomUUID().replace(/-/g, "").slice(0, 24)}`;
 
-  const fault = getFaultConfig(config);
+  const fault = getFaultConfig(providerConfig);
   let status = PROVIDER_OPERATION_STATUS.RECEIVED;
   let statusReason = null;
   let responsePayload = null;
@@ -268,7 +276,7 @@ export async function createCapture({ body, config, session, isDemo }) {
         isDemo,
       },
     ],
-    { session }
+    { session },
   );
 
   await ProviderOperation.updateOne(
@@ -279,12 +287,12 @@ export async function createCapture({ body, config, session, isDemo }) {
         processingStartedAt: new Date(),
       },
     },
-    { session }
+    { session },
   );
 
-  const faultResult = await applyFault(fault, operation, config);
+  const faultResult = await applyFault(fault);
 
-  if (faultResult?.type === FAULT_TYPES.TIMEOUT) {
+  if (faultResult?.type === "timeout") {
     await ProviderOperation.updateOne(
       { _id: operation._id },
       {
@@ -292,23 +300,29 @@ export async function createCapture({ body, config, session, isDemo }) {
           status: PROVIDER_OPERATION_STATUS.UNKNOWN_TO_CLIENT,
           statusReason: "Provider timeout - outcome unknown to client",
           processingCompletedAt: new Date(),
-          faultInjected: FAULT_TYPES.TIMEOUT,
+          faultInjected: "timeout",
         },
       },
-      { session }
+      { session },
     );
-    const updated = await ProviderOperation.findById(operation._id).session(session).lean();
+    const updated = await ProviderOperation.findById(operation._id)
+      .session(session)
+      .lean();
     return { operation: updated, idempotent: false, timeout: true };
   }
 
-  if (faultResult?.type === FAULT_TYPES.DECLINE) {
+  if (faultResult?.type === "decline") {
     status = PROVIDER_OPERATION_STATUS.DECLINED;
     statusReason = faultResult.message;
-    responsePayload = { captured: false, code: faultResult.code, message: faultResult.message };
-    faultInjected = FAULT_TYPES.DECLINE;
+    responsePayload = {
+      captured: false,
+      code: faultResult.code,
+      message: faultResult.message,
+    };
+    faultInjected = "decline";
   } else {
     status = PROVIDER_OPERATION_STATUS.SUCCEEDED;
-    providerReference = generateProviderReference();
+    providerReference = `PROV-${randomUUID().slice(0, 12).toUpperCase()}`;
     responsePayload = {
       captured: true,
       providerReference,
@@ -330,14 +344,16 @@ export async function createCapture({ body, config, session, isDemo }) {
         faultInjected,
       },
     },
-    { session }
+    { session },
   );
 
-  const updated = await ProviderOperation.findById(operation._id).session(session).lean();
+  const updated = await ProviderOperation.findById(operation._id)
+    .session(session)
+    .lean();
   return { operation: updated, idempotent: false };
 }
 
-export async function createRefund({ body, config, session, isDemo }) {
+export async function createRefund({ body, providerConfig, session, isDemo }) {
   const {
     clientOperationId,
     captureOperationId,
@@ -368,7 +384,7 @@ export async function createRefund({ body, config, session, isDemo }) {
   const existing = await ProviderOperation.findOne(
     { idempotencyKey, type: PROVIDER_OPERATION_TYPES.REFUND },
     null,
-    { session }
+    { session },
   ).lean();
 
   if (existing) {
@@ -377,7 +393,7 @@ export async function createRefund({ body, config, session, isDemo }) {
         409,
         "IDEMPOTENCY_CONFLICT",
         "Idempotency key used with different request payload",
-        { operationId: existing.operationId }
+        { operationId: existing.operationId },
       );
     }
     return { operation: existing, idempotent: true };
@@ -385,7 +401,7 @@ export async function createRefund({ body, config, session, isDemo }) {
 
   const operationId = `op_${randomUUID().replace(/-/g, "").slice(0, 24)}`;
 
-  const fault = getFaultConfig(config);
+  const fault = getFaultConfig(providerConfig);
   let status = PROVIDER_OPERATION_STATUS.RECEIVED;
   let statusReason = null;
   let responsePayload = null;
@@ -408,7 +424,7 @@ export async function createRefund({ body, config, session, isDemo }) {
         isDemo,
       },
     ],
-    { session }
+    { session },
   );
 
   await ProviderOperation.updateOne(
@@ -419,12 +435,12 @@ export async function createRefund({ body, config, session, isDemo }) {
         processingStartedAt: new Date(),
       },
     },
-    { session }
+    { session },
   );
 
-  const faultResult = await applyFault(fault, operation, config);
+  const faultResult = await applyFault(fault);
 
-  if (faultResult?.type === FAULT_TYPES.TIMEOUT) {
+  if (faultResult?.type === "timeout") {
     await ProviderOperation.updateOne(
       { _id: operation._id },
       {
@@ -432,23 +448,29 @@ export async function createRefund({ body, config, session, isDemo }) {
           status: PROVIDER_OPERATION_STATUS.UNKNOWN_TO_CLIENT,
           statusReason: "Provider timeout - outcome unknown to client",
           processingCompletedAt: new Date(),
-          faultInjected: FAULT_TYPES.TIMEOUT,
+          faultInjected: "timeout",
         },
       },
-      { session }
+      { session },
     );
-    const updated = await ProviderOperation.findById(operation._id).session(session).lean();
+    const updated = await ProviderOperation.findById(operation._id)
+      .session(session)
+      .lean();
     return { operation: updated, idempotent: false, timeout: true };
   }
 
-  if (faultResult?.type === FAULT_TYPES.DECLINE) {
+  if (faultResult?.type === "decline") {
     status = PROVIDER_OPERATION_STATUS.DECLINED;
     statusReason = faultResult.message;
-    responsePayload = { refunded: false, code: faultResult.code, message: faultResult.message };
-    faultInjected = FAULT_TYPES.DECLINE;
+    responsePayload = {
+      refunded: false,
+      code: faultResult.code,
+      message: faultResult.message,
+    };
+    faultInjected = "decline";
   } else {
     status = PROVIDER_OPERATION_STATUS.SUCCEEDED;
-    providerReference = generateProviderReference();
+    providerReference = `PROV-${randomUUID().slice(0, 12).toUpperCase()}`;
     responsePayload = {
       refunded: true,
       providerReference,
@@ -470,10 +492,12 @@ export async function createRefund({ body, config, session, isDemo }) {
         faultInjected,
       },
     },
-    { session }
+    { session },
   );
 
-  const updated = await ProviderOperation.findById(operation._id).session(session).lean();
+  const updated = await ProviderOperation.findById(operation._id)
+    .session(session)
+    .lean();
   return { operation: updated, idempotent: false };
 }
 
@@ -482,7 +506,11 @@ export async function getOperation({ operationId, session }) {
     .session(session)
     .lean();
   if (!operation) {
-    throw new AppError(404, "OPERATION_NOT_FOUND", "Provider operation not found");
+    throw new AppError(
+      404,
+      "OPERATION_NOT_FOUND",
+      "Provider operation not found",
+    );
   }
   return operation;
 }
@@ -507,4 +535,4 @@ export async function listOperations({ merchantId, query, session }) {
   return { operations, count: operations.length };
 }
 
-export { PROVIDER_OPERATION_TYPES, PROVIDER_OPERATION_STATUS, FAULT_TYPES };
+export { PROVIDER_OPERATION_TYPES, PROVIDER_OPERATION_STATUS };

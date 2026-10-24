@@ -5,7 +5,6 @@ import mongoose from "mongoose";
 import { withTimeout } from "./lib/async.js";
 import { requestId } from "./middleware/requestId.js";
 import { requestLogger } from "./middleware/requestLogger.js";
-import { validate } from "../../../api/src/middleware/validate.js";
 import providerOperationRoutes from "./modules/operations/provider-operation.routes.js";
 
 const silentLogger = pino({ enabled: false });
@@ -37,6 +36,9 @@ async function checkDatabase(database) {
 
 function mongooseSessionMiddleware() {
   return async (req, res, next) => {
+    if (mongoose.connection.readyState !== 1) {
+      return next();
+    }
     const session = await mongoose.startSession();
     req.mongooseSession = session;
     try {
@@ -46,6 +48,37 @@ function mongooseSessionMiddleware() {
     } finally {
       await session.endSession();
     }
+  };
+}
+
+function providerConfigMiddleware(providers) {
+  return (req, res, next) => {
+    const providerId =
+      req.params.providerId ||
+      req.query.providerId ||
+      req.headers["x-provider-id"];
+    if (!providerId) {
+      return res.status(400).json({
+        error: {
+          code: "PROVIDER_ID_REQUIRED",
+          message:
+            "Provider ID is required (providerId param, query, or x-provider-id header)",
+        },
+        meta: meta(req.requestId),
+      });
+    }
+    const provider = providers.find((p) => p.providerId === providerId);
+    if (!provider) {
+      return res.status(404).json({
+        error: {
+          code: "PROVIDER_NOT_FOUND",
+          message: `Provider ${providerId} not found`,
+        },
+        meta: meta(req.requestId),
+      });
+    }
+    req.providerConfig = provider;
+    next();
   };
 }
 
@@ -66,6 +99,10 @@ export function createProviderApp({ database, config, logger = silentLogger }) {
         service: config.service.name,
         version: config.service.version,
         simulationOnly: true,
+        providers: config.providers.map((p) => ({
+          providerId: p.providerId,
+          baseUrl: p.baseUrl,
+        })),
       },
       meta: meta(req.requestId),
     });
@@ -100,9 +137,32 @@ export function createProviderApp({ database, config, logger = silentLogger }) {
     });
   });
 
+  app.get("/providers", (req, res) => {
+    res.json({
+      data: {
+        providers: config.providers.map((p) => ({
+          providerId: p.providerId,
+          baseUrl: p.baseUrl,
+          healthConfig: p.healthConfig,
+        })),
+      },
+      meta: meta(req.requestId),
+    });
+  });
+
   app.use(mongooseSessionMiddleware());
 
-  app.use("/provider", providerOperationRoutes);
+  app.use(
+    "/provider/:providerId",
+    providerConfigMiddleware(config.providers),
+    providerOperationRoutes,
+  );
+
+  app.use(
+    "/provider",
+    providerConfigMiddleware(config.providers),
+    providerOperationRoutes,
+  );
 
   app.use((req, res) => {
     res.status(404).json({

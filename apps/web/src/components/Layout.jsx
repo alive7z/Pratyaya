@@ -13,15 +13,68 @@ import {
   ShieldCheck,
   Sun,
   X,
+  Server,
+  Wifi,
+  BrainCircuit,
+  GitBranch,
+  Zap,
+  ListFilter,
+  Shield,
+  AlertTriangle,
 } from "lucide-react";
 import { NavLink, Outlet } from "react-router-dom";
 import { API_DOCS_URL } from "../lib/apiClient.js";
 
 const navigation = [
   { to: "/", label: "Overview", icon: Activity, end: true, available: true },
-  { to: "/payments", label: "Payments", icon: CreditCard },
+  { to: "/payments", label: "Payments", icon: CreditCard, available: true },
   { to: "/ledger", label: "Ledger", icon: ReceiptText, available: true },
-  { to: "/reliability-lab", label: "Reliability Lab", icon: FlaskConical },
+  { to: "/provider", label: "Provider Monitor", icon: Server, available: true },
+  { to: "/providers", label: "Providers", icon: BrainCircuit, available: true },
+  {
+    to: "/routing",
+    label: "Routing Analytics",
+    icon: GitBranch,
+    available: true,
+  },
+  {
+    to: "/routing/policy",
+    label: "Routing Policy",
+    icon: BrainCircuit,
+    available: true,
+  },
+  {
+    to: "/routing/circuit-breakers",
+    label: "Circuit Breakers",
+    icon: Zap,
+    available: true,
+  },
+  {
+    to: "/routing/decisions",
+    label: "Decision Explorer",
+    icon: ListFilter,
+    available: true,
+  },
+  { to: "/risk", label: "Risk Analytics", icon: Shield, available: true },
+  {
+    to: "/risk/rules",
+    label: "Risk Rules",
+    icon: AlertTriangle,
+    available: true,
+  },
+  {
+    to: "/risk/review",
+    label: "Transaction Review",
+    icon: Shield,
+    available: true,
+  },
+  {
+    to: "/reliability-lab",
+    label: "Reliability Lab",
+    icon: FlaskConical,
+    available: true,
+  },
+  { to: "/webhooks", label: "Webhooks", icon: Wifi, available: true },
   { to: "/agentpay", label: "AgentPay", icon: Bot },
   { to: "/analytics", label: "Analytics", icon: BarChart3 },
   { to: "/health", label: "System health", icon: HeartPulse, available: true },
@@ -74,7 +127,7 @@ export default function Layout() {
 
       <div className="flex min-h-[calc(100vh-33px)]">
         <aside
-          className={`${mobileOpen ? "flex" : "hidden"} fixed inset-y-0 left-0 z-50 mt-[33px] w-72 flex-col border-r border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950 lg:sticky lg:top-0 lg:flex lg:h-[calc(100vh-33px)]`}
+          className={`${mobileOpen ? "flex" : "hidden"} fixed inset-y-0 left-0 z-50 w-72 flex-col border-r border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950 lg:sticky lg:top-0 lg:flex lg:h-dvh`}
         >
           <div className="flex items-center justify-between gap-3 px-2 py-2">
             <NavLink
@@ -126,10 +179,11 @@ export default function Layout() {
 
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
             <p className="font-semibold text-slate-900 dark:text-white">
-              M04 ledger engine
+              M06 intelligent routing
             </p>
             <p className="mt-1 leading-5">
-              Immutable journals and integrity verification.
+              Multi-provider routing, circuit breakers, adaptive failover,
+              reliability analytics.
             </p>
           </div>
         </aside>

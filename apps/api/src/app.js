@@ -20,7 +20,12 @@ import { createHealthRouter } from "./modules/health/health.routes.js";
 import { createLedgerRouter } from "./modules/ledger/ledger.routes.js";
 import { createPaymentRouter } from "./modules/payments/payment.routes.js";
 import { createReconciliationRouter } from "./modules/reconciliation/reconciliation.routes.js";
+import { createRiskRouter } from "./modules/risk/risk.routes.js";
+import { createRoutingRouter } from "./modules/routing/routing.routes.js";
+import { createSandboxRouter } from "./modules/sandbox/sandbox.routes.js";
+import { createAgentPayRouter } from "./modules/agentpay/agentpay.routes.js";
 import { createSystemRouter } from "./modules/system/system.routes.js";
+import { createWebhookRouter } from "./modules/webhooks/webhook.routes.js";
 
 const openApiDocument = parseYaml(
   readFileSync(new URL("../../../docs/openapi.yaml", import.meta.url), "utf8"),
@@ -110,7 +115,15 @@ export function createApp({ database, config, logger = silentLogger }) {
 
   app.use("/api/v1/reconciliation", createReconciliationRouter({ config }));
 
+  app.use("/api/v1/risk", createRiskRouter({ config }));
+
   app.use("/api/v1/audit-logs", createAuditRouter({ config }));
+
+  app.use("/api/v1/webhooks", createWebhookRouter({ config }));
+
+  app.use("/api/v1/routing", createRoutingRouter({ config }));
+
+  app.use("/api/v1/sandbox", createSandboxRouter({ config }));
 
   app.get("/api-docs/openapi.json", (_req, res) => {
     res.json(openApiDocument);

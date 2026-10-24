@@ -20,7 +20,13 @@ const booleanString = (defaultValue = "false") =>
 
 const faultRuleSchema = z
   .object({
-    type: z.enum(["timeout", "decline", "latency", "error", "duplicate_webhook"]),
+    type: z.enum([
+      "timeout",
+      "decline",
+      "latency",
+      "error",
+      "duplicate_webhook",
+    ]),
     enabled: z.boolean().default(false),
     delayMs: z.coerce.number().int().min(0).max(60000).optional(),
     statusCode: z.coerce.number().int().min(400).max(599).optional(),
@@ -35,6 +41,27 @@ const faultsSchema = z
     rules: z.array(faultRuleSchema).max(10).default([]),
   })
   .strict();
+
+const providerConfigSchema = z
+  .object({
+    providerId: z.enum(["alpha", "beta", "gamma"]),
+    baseUrl: z.string().url(),
+    hmacSecret: z.string().min(32),
+    timeoutMs: z.coerce.number().int().min(1000).default(15000),
+    retryAttempts: z.coerce.number().int().min(0).max(5).default(3),
+    faults: faultsSchema.default({ enabled: false, rules: [] }),
+    healthConfig: z
+      .object({
+        baseLatencyMs: z.coerce.number().int().min(0).default(50),
+        latencyVarianceMs: z.coerce.number().int().min(0).default(20),
+        failureProbability: z.coerce.number().min(0).max(1).default(0),
+        timeoutProbability: z.coerce.number().min(0).max(1).default(0),
+      })
+      .optional(),
+  })
+  .strict();
+
+const providersSchema = z.array(providerConfigSchema).min(1).max(3);
 
 const envSchema = z.object({
   NODE_ENV: z
@@ -60,6 +87,12 @@ const envSchema = z.object({
   MONGODB_CONNECT_TIMEOUT_MS: z.coerce.number().int().min(1000).default(10000),
   MONGODB_SOCKET_TIMEOUT_MS: z.coerce.number().int().min(1000).default(45000),
   MONGODB_AUTO_INDEX: booleanString("true"),
+  PROVIDERS: z
+    .string()
+    .optional()
+    .transform((val) => (val ? JSON.parse(val) : []))
+    .pipe(providersSchema)
+    .default([]),
   PROVIDER_FAULTS: z
     .string()
     .optional()
@@ -88,6 +121,17 @@ export function loadConfig() {
     );
   }
 
+  if (env.PROVIDERS.length === 0) {
+    throw new Error(
+      "Invalid mock-provider configuration: At least one provider must be configured in PROVIDERS",
+    );
+  }
+
+  const providerIds = env.PROVIDERS.map((p) => p.providerId);
+  if (new Set(providerIds).size !== providerIds.length) {
+    throw new Error("Duplicate provider IDs in PROVIDERS configuration");
+  }
+
   return Object.freeze({
     nodeEnv: env.NODE_ENV,
     logLevel: env.LOG_LEVEL,
@@ -100,7 +144,8 @@ export function loadConfig() {
       socketTimeoutMs: env.MONGODB_SOCKET_TIMEOUT_MS,
       autoIndex: env.MONGODB_AUTO_INDEX,
     }),
-    faults: env.PROVIDER_FAULTS,
+    faults: Object.freeze(env.PROVIDER_FAULTS),
+    providers: Object.freeze(env.PROVIDERS),
     service: Object.freeze({
       name: "pratyaya-mock-provider",
       version: packageJson.version,

@@ -1,6 +1,13 @@
 import { z } from "zod";
 import { MAX_PAYMENT_MINOR_UNITS } from "./money.js";
-import { DEMO_ROLES, SUPPORTED_CURRENCIES } from "./constants.js";
+import {
+  DEMO_ROLES,
+  SUPPORTED_CURRENCIES,
+  RISK_DECISION,
+  RISK_LEVEL,
+  RISK_RULE_TYPE,
+  RISK_RULE_ACTION,
+} from "./constants.js";
 
 const MINOR_UNITS_PATTERN = /^(0|[1-9]\d*)$/;
 const PRINTABLE_ASCII_PATTERN = /^[\x21-\x7E]+$/;
@@ -115,5 +122,70 @@ export const loginSchema = z
 export const demoSessionRequestSchema = z
   .object({
     role: z.enum(DEMO_ROLES),
+  })
+  .strict();
+
+export const riskLevelSchema = z.enum(Object.values(RISK_LEVEL));
+
+export const riskDecisionEnumSchema = z.enum(Object.values(RISK_DECISION));
+
+export const riskRuleTypeSchema = z.enum(Object.values(RISK_RULE_TYPE));
+
+export const riskRuleActionSchema = z.enum(Object.values(RISK_RULE_ACTION));
+
+export const riskRuleSchema = z
+  .object({
+    ruleCode: z.string().trim().min(1).max(80),
+    name: z.string().trim().min(1).max(120),
+    description: z.string().trim().max(500).optional(),
+    type: riskRuleTypeSchema,
+    action: riskRuleActionSchema,
+    severity: riskLevelSchema,
+    scoreIncrement: z.number().int().min(0).max(100).default(0),
+    conditions: z.record(z.unknown()).default({}),
+    isActive: z.boolean().default(true),
+    priority: z.number().int().min(0).max(100).default(0),
+  })
+  .strict();
+
+export const riskDecisionCreateSchema = z
+  .object({
+    paymentId: z.string().regex(/^[0-9a-fA-F]{24}$/),
+    decision: riskDecisionEnumSchema,
+    score: z.number().int().min(0).max(100),
+    level: riskLevelSchema,
+    ruleCodes: z.array(z.string().trim().max(80)).default([]),
+    explanation: z.string().trim().max(1000).optional(),
+    source: z.enum(["AUTOMATED", "MANUAL", "RULE_ENGINE"]).default("AUTOMATED"),
+    reviewedBy: z.string().optional(),
+    reviewedAt: z.string().datetime().optional(),
+  })
+  .strict();
+
+export const riskRuleCreateSchema = z
+  .object({
+    ruleCode: z.string().trim().min(1).max(80),
+    name: z.string().trim().min(1).max(120),
+    description: z.string().trim().max(500).optional(),
+    type: riskRuleTypeSchema,
+    action: riskRuleActionSchema,
+    severity: riskLevelSchema,
+    scoreIncrement: z.number().int().min(0).max(100).default(0),
+    conditions: z.record(z.unknown()).default({}),
+    isActive: z.boolean().default(true),
+    priority: z.number().int().min(0).max(100).default(0),
+  })
+  .strict();
+
+export const riskRuleUpdateSchema = riskRuleCreateSchema.partial();
+
+export const riskDecisionQuerySchema = z
+  .object({
+    decision: riskDecisionEnumSchema.optional(),
+    level: riskLevelSchema.optional(),
+    from: z.string().datetime().optional(),
+    to: z.string().datetime().optional(),
+    limit: z.coerce.number().int().min(1).max(100).default(20),
+    cursor: z.string().trim().min(1).max(512).optional(),
   })
   .strict();

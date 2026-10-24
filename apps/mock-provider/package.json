@@ -8,6 +8,7 @@
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
     "test": "vitest run",
+    "test:integration": "RUN_INTEGRATION_TESTS=1 vitest run --no-file-parallelism",
     "db:check": "node src/db/check.js"
   },
   "dependencies": {

@@ -35,6 +35,9 @@ export const PERMISSIONS = Object.freeze({
   PAYMENTS_CREATE: "payments.create",
   PAYMENTS_CANCEL: "payments.cancel",
   REFUNDS_READ: "refunds.read",
+  AGENTPAY_CREATE: "agentpay.create",
+  AGENTPAY_READ: "agentpay.read",
+  AGENTPAY_EXECUTE: "agentpay.execute",
   ADMIN_DASHBOARD_READ: "admin.dashboard.read",
   MERCHANTS_READ: "merchants.read",
   AUDIT_READ: "audit.read",
@@ -60,6 +63,9 @@ export const ROLE_PERMISSIONS = Object.freeze({
     PERMISSIONS.AUDIT_READ_OWN,
     PERMISSIONS.LEDGER_READ,
     PERMISSIONS.RECONCILIATION_READ,
+    PERMISSIONS.AGENTPAY_CREATE,
+    PERMISSIONS.AGENTPAY_READ,
+    PERMISSIONS.AGENTPAY_EXECUTE,
   ]),
   [ROLES.ADMIN]: Object.freeze([
     PERMISSIONS.ADMIN_DASHBOARD_READ,
@@ -171,6 +177,16 @@ export const RECONCILIATION_CASE_STATUS = Object.freeze({
   MANUAL_REVIEW: "MANUAL_REVIEW",
 });
 
+export const REFUND_STATUS = Object.freeze({
+  REQUESTED: "REQUESTED",
+  QUEUED: "QUEUED",
+  PROCESSING: "PROCESSING",
+  SUCCEEDED: "SUCCEEDED",
+  FAILED: "FAILED",
+  UNKNOWN: "UNKNOWN",
+  CANCELLED: "CANCELLED",
+});
+
 export const IDEMPOTENCY_STATE = Object.freeze({
   IN_PROGRESS: "IN_PROGRESS",
   COMPLETED: "COMPLETED",
@@ -221,6 +237,24 @@ export const QUEUE_NAMES = Object.freeze({
   WEBHOOK_PROCESSING: "webhook-processing",
 });
 
+export const JOB_TYPES = Object.freeze({
+  PROCESS_AUTHORIZATION: "PROCESS_AUTHORIZATION",
+  PROCESS_CAPTURE: "PROCESS_CAPTURE",
+  PROCESS_REFUND: "PROCESS_REFUND",
+  RECONCILE_PAYMENT: "RECONCILE_PAYMENT",
+  RECONCILE_REFUND: "RECONCILE_REFUND",
+  DISPATCH_WEBHOOK: "DISPATCH_WEBHOOK",
+  VERIFY_LEDGER_INTEGRITY: "VERIFY_LEDGER_INTEGRITY",
+});
+
+export const JOB_STATUS = Object.freeze({
+  PENDING: "PENDING",
+  PROCESSING: "PROCESSING",
+  COMPLETED: "COMPLETED",
+  RETRY: "RETRY",
+  DEAD_LETTER: "DEAD_LETTER",
+});
+
 export const IDEMPOTENCY_OPERATIONS = Object.freeze({
   CREATE_PAYMENT: "payments.create",
   AUTHORIZE_PAYMENT: "payments.authorize",
@@ -239,4 +273,83 @@ export const OUTBOX_EVENT_TYPES = Object.freeze({
   PAYMENT_RECONCILIATION_REQUESTED: "payment.reconciliation.requested",
   LEDGER_JOURNAL_POSTED: "ledger.journal.posted",
   LEDGER_INTEGRITY_COMPLETED: "ledger.integrity.completed",
+});
+
+export const PROVIDER_IDS = Object.freeze({
+  ALPHA: "alpha",
+  BETA: "beta",
+  GAMMA: "gamma",
+});
+
+export const PROVIDER_STATUS = Object.freeze({
+  ACTIVE: "ACTIVE",
+  DISABLED: "DISABLED",
+  MAINTENANCE: "MAINTENANCE",
+});
+
+export const ROUTING_STRATEGIES = Object.freeze({
+  RELIABILITY_FIRST: "RELIABILITY_FIRST",
+  LOWEST_LATENCY: "LOWEST_LATENCY",
+  LOWEST_COST: "LOWEST_COST",
+  BALANCED_ADAPTIVE: "BALANCED_ADAPTIVE",
+});
+
+export const CIRCUIT_BREAKER_STATE = Object.freeze({
+  CLOSED: "CLOSED",
+  OPEN: "OPEN",
+  HALF_OPEN: "HALF_OPEN",
+});
+
+export const ROUTING_DECISION_REASON = Object.freeze({
+  PROVIDER_SELECTED: "PROVIDER_SELECTED",
+  NO_ELIGIBLE_PROVIDER: "NO_ELIGIBLE_PROVIDER",
+  CIRCUIT_BREAKER_OPEN: "CIRCUIT_BREAKER_OPEN",
+  PROVIDER_UNAVAILABLE: "PROVIDER_UNAVAILABLE",
+  FAILOVER: "FAILOVER",
+  MANUAL_OVERRIDE: "MANUAL_OVERRIDE",
+});
+
+export const PROVIDER_HEALTH_METRICS = Object.freeze({
+  AVAILABILITY: "availability",
+  ERROR_RATE: "error_rate",
+  SUCCESS_RATE: "success_rate",
+  TIMEOUT_RATE: "timeout_rate",
+  LATENCY_P50: "latency_p50",
+  LATENCY_P95: "latency_p95",
+  LATENCY_P99: "latency_p99",
+});
+
+export const RISK_DECISION = Object.freeze({
+  ALLOW: "ALLOW",
+  REVIEW: "REVIEW",
+  BLOCK: "BLOCK",
+});
+
+export const RISK_LEVEL = Object.freeze({
+  LOW: "LOW",
+  MEDIUM: "MEDIUM",
+  HIGH: "HIGH",
+  CRITICAL: "CRITICAL",
+});
+
+export const RISK_RULE_TYPE = Object.freeze({
+  VELOCITY: "VELOCITY",
+  AMOUNT_ANOMALY: "AMOUNT_ANOMALY",
+  FAILED_ATTEMPTS: "FAILED_ATTEMPTS",
+  PATTERN: "PATTERN",
+  GEOGRAPHIC: "GEOGRAPHIC",
+  CUSTOM: "CUSTOM",
+});
+
+export const RISK_RULE_ACTION = Object.freeze({
+  ALLOW: "ALLOW",
+  REVIEW: "REVIEW",
+  BLOCK: "BLOCK",
+  SCORE_INCREMENT: "SCORE_INCREMENT",
+});
+
+export const RISK_DECISION_SOURCE = Object.freeze({
+  AUTOMATED: "AUTOMATED",
+  MANUAL: "MANUAL",
+  RULE_ENGINE: "RULE_ENGINE",
 });

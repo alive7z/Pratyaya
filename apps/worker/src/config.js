@@ -7,6 +7,12 @@ dotenv.config({
   quiet: true,
 });
 
+const booleanString = (defaultValue = "false") =>
+  z
+    .enum(["true", "false", "1", "0"])
+    .default(defaultValue)
+    .transform((value) => value === "true" || value === "1");
+
 const envSchema = z.object({
   NODE_ENV: z
     .enum(["development", "test", "production"])
@@ -22,11 +28,15 @@ const envSchema = z.object({
       "MONGODB_URI must be a MongoDB Atlas connection string",
     )
     .optional(),
+  MONGODB_MAX_POOL_SIZE: z.coerce.number().int().min(1).max(50).default(10),
   MONGODB_SERVER_SELECTION_TIMEOUT_MS: z.coerce
     .number()
     .int()
     .min(1000)
     .default(5000),
+  MONGODB_CONNECT_TIMEOUT_MS: z.coerce.number().int().min(1000).default(10000),
+  MONGODB_SOCKET_TIMEOUT_MS: z.coerce.number().int().min(1000).default(45000),
+  MONGODB_AUTO_INDEX: booleanString("true"),
 });
 
 export function loadWorkerConfig() {
@@ -52,8 +62,12 @@ export function loadWorkerConfig() {
     logLevel: result.data.LOG_LEVEL,
     healthPort: result.data.WORKER_HEALTH_PORT,
     mongodbUri: result.data.MONGODB_URI,
+    mongodbMaxPoolSize: result.data.MONGODB_MAX_POOL_SIZE,
     mongodbServerSelectionTimeoutMs:
       result.data.MONGODB_SERVER_SELECTION_TIMEOUT_MS,
+    mongodbConnectTimeoutMs: result.data.MONGODB_CONNECT_TIMEOUT_MS,
+    mongodbSocketTimeoutMs: result.data.MONGODB_SOCKET_TIMEOUT_MS,
+    autoIndex: result.data.MONGODB_AUTO_INDEX,
     service: Object.freeze({ name: "pratyaya-worker", version: "0.1.0" }),
   });
 }
