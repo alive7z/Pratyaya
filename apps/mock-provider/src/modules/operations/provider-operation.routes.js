@@ -101,16 +101,14 @@ const listQuerySchema = z
 
 router.post(
   "/v1/authorizations",
-  validate(authorizeSchema),
+  validate({ body: authorizeSchema }),
   async (req, res, next) => {
     try {
       const providerConfig = req.providerConfig;
-      const session = req.app.locals.mongooseSession;
       const result = await createAuthorization({
-        body: req.body,
+        body: req.validated.body,
         providerConfig,
-        session,
-        isDemo: req.body.isDemo ?? false,
+        isDemo: false,
       });
       const statusCode = result.timeout ? 202 : result.idempotent ? 200 : 201;
       res.status(statusCode).json({
@@ -138,82 +136,85 @@ router.post(
   },
 );
 
-router.post("/v1/captures", validate(captureSchema), async (req, res, next) => {
-  try {
-    const providerConfig = req.providerConfig;
-    const session = req.app.locals.mongooseSession;
-    const result = await createCapture({
-      body: req.body,
-      providerConfig,
-      session,
-      isDemo: req.body.isDemo ?? false,
-    });
-    const statusCode = result.timeout ? 202 : result.idempotent ? 200 : 201;
-    res.status(statusCode).json({
-      data: {
-        operationId: result.operation.operationId,
-        type: result.operation.type,
-        status: result.operation.status,
-        statusReason: result.operation.statusReason,
-        providerReference: result.operation.providerReference,
-        amountMinor:
-          result.operation.amountMinor?.toString?.() ??
-          result.operation.amountMinor,
-        currency: result.operation.currency,
-        clientOperationId: result.operation.clientOperationId,
-        idempotent: result.idempotent,
-        timeout: result.timeout ?? false,
-        createdAt: result.operation.createdAt,
-        completedAt: result.operation.processingCompletedAt,
-      },
-      meta: { requestId: req.requestId },
-    });
-  } catch (error) {
-    next(error);
-  }
-});
+router.post(
+  "/v1/captures",
+  validate({ body: captureSchema }),
+  async (req, res, next) => {
+    try {
+      const providerConfig = req.providerConfig;
+      const result = await createCapture({
+        body: req.validated.body,
+        providerConfig,
+        isDemo: false,
+      });
+      const statusCode = result.timeout ? 202 : result.idempotent ? 200 : 201;
+      res.status(statusCode).json({
+        data: {
+          operationId: result.operation.operationId,
+          type: result.operation.type,
+          status: result.operation.status,
+          statusReason: result.operation.statusReason,
+          providerReference: result.operation.providerReference,
+          amountMinor:
+            result.operation.amountMinor?.toString?.() ??
+            result.operation.amountMinor,
+          currency: result.operation.currency,
+          clientOperationId: result.operation.clientOperationId,
+          idempotent: result.idempotent,
+          timeout: result.timeout ?? false,
+          createdAt: result.operation.createdAt,
+          completedAt: result.operation.processingCompletedAt,
+        },
+        meta: { requestId: req.requestId },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
 
-router.post("/v1/refunds", validate(refundSchema), async (req, res, next) => {
-  try {
-    const providerConfig = req.providerConfig;
-    const session = req.app.locals.mongooseSession;
-    const result = await createRefund({
-      body: req.body,
-      providerConfig,
-      session,
-      isDemo: req.body.isDemo ?? false,
-    });
-    const statusCode = result.timeout ? 202 : result.idempotent ? 200 : 201;
-    res.status(statusCode).json({
-      data: {
-        operationId: result.operation.operationId,
-        type: result.operation.type,
-        status: result.operation.status,
-        statusReason: result.operation.statusReason,
-        providerReference: result.operation.providerReference,
-        amountMinor:
-          result.operation.amountMinor?.toString?.() ??
-          result.operation.amountMinor,
-        currency: result.operation.currency,
-        clientOperationId: result.operation.clientOperationId,
-        idempotent: result.idempotent,
-        timeout: result.timeout ?? false,
-        createdAt: result.operation.createdAt,
-        completedAt: result.operation.processingCompletedAt,
-      },
-      meta: { requestId: req.requestId },
-    });
-  } catch (error) {
-    next(error);
-  }
-});
+router.post(
+  "/v1/refunds",
+  validate({ body: refundSchema }),
+  async (req, res, next) => {
+    try {
+      const providerConfig = req.providerConfig;
+      const result = await createRefund({
+        body: req.validated.body,
+        providerConfig,
+        isDemo: false,
+      });
+      const statusCode = result.timeout ? 202 : result.idempotent ? 200 : 201;
+      res.status(statusCode).json({
+        data: {
+          operationId: result.operation.operationId,
+          type: result.operation.type,
+          status: result.operation.status,
+          statusReason: result.operation.statusReason,
+          providerReference: result.operation.providerReference,
+          amountMinor:
+            result.operation.amountMinor?.toString?.() ??
+            result.operation.amountMinor,
+          currency: result.operation.currency,
+          clientOperationId: result.operation.clientOperationId,
+          idempotent: result.idempotent,
+          timeout: result.timeout ?? false,
+          createdAt: result.operation.createdAt,
+          completedAt: result.operation.processingCompletedAt,
+        },
+        meta: { requestId: req.requestId },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
 
 router.get("/v1/operations/:operationId", async (req, res, next) => {
   try {
-    const session = req.app.locals.mongooseSession;
     const operation = await getOperation({
       operationId: req.params.operationId,
-      session,
+      providerId: req.providerConfig.providerId,
     });
     res.json({
       data: {
@@ -243,10 +244,9 @@ router.get("/v1/operations/:operationId", async (req, res, next) => {
 
 router.get(
   "/v1/operations",
-  validate(listQuerySchema),
+  validate({ query: listQuerySchema }),
   async (req, res, next) => {
     try {
-      const session = req.app.locals.mongooseSession;
       const merchantId = req.query.merchantId ?? req.headers["x-merchant-id"];
       if (!merchantId) {
         return res.status(400).json({
@@ -259,8 +259,8 @@ router.get(
       }
       const result = await listOperations({
         merchantId,
-        query: req.query,
-        session,
+        providerId: req.providerConfig.providerId,
+        query: req.validated.query,
       });
       res.json({
         data: {
