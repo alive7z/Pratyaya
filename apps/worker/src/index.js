@@ -26,6 +26,8 @@ const logger = createLogger({
 let shuttingDown = false;
 let workerId = `worker-${process.pid}-${Date.now()}`;
 let processingInterval = null;
+let outboxInterval = null;
+let recoveryInterval = null;
 const POLL_INTERVAL_MS = 5000;
 const MAX_JOBS_PER_POLL = 10;
 const LEASE_DURATION_MS = 30000;
@@ -223,7 +225,7 @@ async function startProcessingLoops() {
     });
   }, POLL_INTERVAL_MS);
 
-  setInterval(() => {
+  outboxInterval = setInterval(() => {
     outboxRelayLoop().catch((err) => {
       logger.error(
         { event: "worker.outbox_loop_crash", err },
@@ -232,7 +234,7 @@ async function startProcessingLoops() {
     });
   }, POLL_INTERVAL_MS * 2);
 
-  setInterval(() => {
+  recoveryInterval = setInterval(() => {
     staleJobRecoveryLoop().catch((err) => {
       logger.error(
         { event: "worker.recovery_loop_crash", err },
@@ -257,6 +259,12 @@ async function shutdown(signal) {
   if (processingInterval) {
     clearInterval(processingInterval);
   }
+  if (outboxInterval) {
+    clearInterval(outboxInterval);
+  }
+  if (recoveryInterval) {
+    clearInterval(recoveryInterval);
+  }
 
   const forceExit = setTimeout(() => {
     logger.fatal(
@@ -279,7 +287,7 @@ async function start() {
 
   await Job.init();
 
-  server.listen(config.healthPort, () => {
+  server.listen(config.healthPort, "0.0.0.0", () => {
     logger.info(
       {
         event: "worker.started",
