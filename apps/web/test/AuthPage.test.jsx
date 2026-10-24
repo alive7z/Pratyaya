@@ -3,6 +3,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import AuthPage from "../src/pages/AuthPage.jsx";
+import { AuthProvider } from "../src/app/AuthContext.jsx";
 
 function response(data) {
   return new Response(
@@ -14,6 +15,16 @@ function response(data) {
   );
 }
 
+function renderAuthPage(mode) {
+  return render(
+    <AuthProvider>
+      <MemoryRouter>
+        <AuthPage mode={mode} />
+      </MemoryRouter>
+    </AuthProvider>,
+  );
+}
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
@@ -21,11 +32,7 @@ afterEach(() => {
 
 describe("credential-free demo access", () => {
   it("keeps all four Explore roles on login and register", () => {
-    const { rerender } = render(
-      <MemoryRouter>
-        <AuthPage mode="login" />
-      </MemoryRouter>,
-    );
+    const { rerender } = renderAuthPage("login");
 
     for (const label of ["Merchant", "Admin", "Developer", "Risk Analyst"]) {
       expect(
@@ -34,9 +41,11 @@ describe("credential-free demo access", () => {
     }
 
     rerender(
-      <MemoryRouter>
-        <AuthPage mode="register" />
-      </MemoryRouter>,
+      <AuthProvider>
+        <MemoryRouter>
+          <AuthPage mode="register" />
+        </MemoryRouter>
+      </AuthProvider>,
     );
 
     for (const label of ["Merchant", "Admin", "Developer", "Risk Analyst"]) {
@@ -51,11 +60,7 @@ describe("credential-free demo access", () => {
     const fetchMock = vi.fn(async () => response({ role: "ADMIN" }));
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <MemoryRouter>
-        <AuthPage mode="login" />
-      </MemoryRouter>,
-    );
+    renderAuthPage("login");
 
     await user.click(screen.getByRole("button", { name: /Explore as Admin/ }));
 
