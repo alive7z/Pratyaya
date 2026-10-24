@@ -1,19 +1,39 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  useCallback,
+} from "react";
 import { authApi } from "../lib/apiClient.js";
 
 const AuthContext = createContext(null);
 
+function normalizeAuth(data) {
+  if (!data) return null;
+  const merchantId =
+    data.membership?.merchant?.id || data.merchant?.id || data.merchantId;
+  return {
+    ...data,
+    merchantId,
+  };
+}
+
 export function AuthProvider({ children }) {
-  const [auth, setAuth] = useState(null);
+  const [auth, setAuthState] = useState(null);
   const [loading, setLoading] = useState(true);
+
+  const setAuth = useCallback((data) => {
+    setAuthState(normalizeAuth(data));
+  }, []);
 
   useEffect(() => {
     authApi
       .me()
-      .then((data) => setAuth(data.data))
-      .catch(() => setAuth(null))
+      .then((res) => setAuth(res.data))
+      .catch(() => setAuthState(null))
       .finally(() => setLoading(false));
-  }, []);
+  }, [setAuth]);
 
   return (
     <AuthContext.Provider value={{ auth, loading, setAuth }}>
