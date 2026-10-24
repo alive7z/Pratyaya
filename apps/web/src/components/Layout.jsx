@@ -1,85 +1,188 @@
 import { useEffect, useState } from "react";
 import {
   Activity,
-  BarChart3,
   Bot,
   CreditCard,
   FlaskConical,
   HeartPulse,
+  LogOut,
   Menu,
   Moon,
   ReceiptText,
-  Settings,
+  Server,
+  Shield,
   ShieldCheck,
   Sun,
   X,
-  Server,
+  Settings,
+  User,
   Wifi,
   BrainCircuit,
   GitBranch,
   Zap,
   ListFilter,
-  Shield,
   AlertTriangle,
+  Clock,
+  ShieldAlert,
+  Battery,
+  TrendingUp,
 } from "lucide-react";
-import { NavLink, Outlet } from "react-router-dom";
-import { API_DOCS_URL } from "../lib/apiClient.js";
+import { NavLink, Outlet, Link } from "react-router-dom";
+import { useAuth } from "../app/AuthContext.jsx";
+import { API_DOCS_URL, authApi } from "../lib/apiClient.js";
+import { ErrorBoundary } from "./ErrorBoundary.jsx";
 
 const navigation = [
-  { to: "/", label: "Overview", icon: Activity, end: true, available: true },
-  { to: "/payments", label: "Payments", icon: CreditCard, available: true },
-  { to: "/ledger", label: "Ledger", icon: ReceiptText, available: true },
-  { to: "/provider", label: "Provider Monitor", icon: Server, available: true },
-  { to: "/providers", label: "Providers", icon: BrainCircuit, available: true },
+  {
+    to: "/",
+    label: "Overview",
+    icon: Activity,
+    end: true,
+    available: true,
+    permissions: [],
+  },
+  {
+    to: "/payments",
+    label: "Payments",
+    icon: CreditCard,
+    available: true,
+    permissions: ["payments.read"],
+  },
+  {
+    to: "/ledger",
+    label: "Ledger",
+    icon: ReceiptText,
+    available: true,
+    permissions: ["ledger.read"],
+  },
+  {
+    to: "/provider",
+    label: "Provider Monitor",
+    icon: Server,
+    available: true,
+    permissions: ["payments.read"],
+  },
+  {
+    to: "/providers",
+    label: "Providers",
+    icon: BrainCircuit,
+    available: true,
+    permissions: ["payments.read"],
+  },
   {
     to: "/routing",
     label: "Routing Analytics",
     icon: GitBranch,
     available: true,
+    permissions: ["payments.read"],
   },
   {
     to: "/routing/policy",
     label: "Routing Policy",
     icon: BrainCircuit,
     available: true,
+    permissions: ["payments.read"],
   },
   {
     to: "/routing/circuit-breakers",
     label: "Circuit Breakers",
     icon: Zap,
     available: true,
+    permissions: ["payments.read"],
   },
   {
     to: "/routing/decisions",
     label: "Decision Explorer",
     icon: ListFilter,
     available: true,
+    permissions: ["payments.read"],
   },
-  { to: "/risk", label: "Risk Analytics", icon: Shield, available: true },
+  {
+    to: "/risk",
+    label: "Risk Analytics",
+    icon: Shield,
+    available: true,
+    permissions: ["risk.dashboard.read"],
+  },
   {
     to: "/risk/rules",
     label: "Risk Rules",
     icon: AlertTriangle,
     available: true,
+    permissions: ["risk.dashboard.read"],
   },
   {
     to: "/risk/review",
     label: "Transaction Review",
-    icon: Shield,
+    icon: ShieldAlert,
     available: true,
+    permissions: ["risk.alerts.read"],
   },
   {
     to: "/reliability-lab",
     label: "Reliability Lab",
     icon: FlaskConical,
     available: true,
+    permissions: ["payments.read"],
   },
-  { to: "/webhooks", label: "Webhooks", icon: Wifi, available: true },
-  { to: "/agentpay", label: "AgentPay", icon: Bot },
-  { to: "/analytics", label: "Analytics", icon: BarChart3 },
-  { to: "/health", label: "System health", icon: HeartPulse, available: true },
-  { to: "/settings", label: "Settings", icon: Settings },
+  {
+    to: "/webhooks",
+    label: "Webhooks",
+    icon: Wifi,
+    available: true,
+    permissions: ["webhooks.read"],
+  },
+  {
+    to: "/agentpay",
+    label: "AgentPay",
+    icon: Bot,
+    available: true,
+    permissions: ["agentpay.read"],
+  },
+  {
+    to: "/chaos",
+    label: "Chaos Lab",
+    icon: Battery,
+    available: true,
+    permissions: ["payments.read"],
+  },
+  {
+    to: "/time-machine",
+    label: "Transaction Time Machine",
+    icon: Clock,
+    available: true,
+    permissions: ["payments.read"],
+  },
+  {
+    to: "/analytics",
+    label: "Analytics",
+    icon: TrendingUp,
+    available: true,
+    permissions: ["payments.read"],
+  },
+  {
+    to: "/health",
+    label: "System Health",
+    icon: HeartPulse,
+    available: true,
+    permissions: ["system.health.read"],
+  },
+  {
+    to: "/settings",
+    label: "Settings",
+    icon: Settings,
+    available: true,
+    permissions: [],
+  },
 ];
+
+const ROLE_LABELS = {
+  MERCHANT: "Merchant",
+  ADMIN: "Admin",
+  DEVELOPER: "Developer",
+  RISK_ANALYST: "Risk Analyst",
+  AUDITOR: "Auditor",
+};
 
 function navClass({ isActive }) {
   return [
@@ -98,6 +201,7 @@ function initialTheme() {
 }
 
 export default function Layout() {
+  const { auth, loading: authLoading, setAuth } = useAuth();
   const [theme, setTheme] = useState(initialTheme);
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -105,6 +209,34 @@ export default function Layout() {
     document.documentElement.classList.toggle("dark", theme === "dark");
     window.localStorage.setItem("pratyaya-theme", theme);
   }, [theme]);
+
+  // Keep all platform simulation modules accessible in the navigation bar so buttons do not disappear
+  const visibleNav = navigation;
+
+  const roleLabel = ROLE_LABELS[auth?.membership?.role ?? ""] || "User";
+
+  const handleLogout = async () => {
+    try {
+      await authApi.logout();
+    } catch {
+      // Clear local identity even when the remote session is already gone.
+    }
+    setAuth(null);
+    window.location.href = "/login";
+  };
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950">
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-8 w-8 rounded-full border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+          <p className="text-sm text-slate-600 dark:text-slate-400">
+            Loading session…
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
@@ -157,35 +289,82 @@ export default function Layout() {
             </button>
           </div>
 
-          <nav aria-label="Primary" className="mt-6 flex-1 space-y-1">
-            {navigation.map((item) => (
+          {auth ? (
+            <div className="px-2 py-3 mb-4 rounded-xl border border-slate-200 bg-blue-50 dark:border-blue-500/20 dark:bg-blue-950/10">
+              <div className="flex items-center gap-3">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-white">
+                  <User className="h-5 w-5" />
+                </div>
+                <div className="overflow-hidden">
+                  <p className="text-sm font-medium text-slate-900 dark:text-white">
+                    {auth.user?.displayName || auth.user?.email || "User"}
+                  </p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 truncate max-w-[140px]">
+                    {roleLabel} •{" "}
+                    {auth.membership?.merchant?.name || "Merchant"}
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="px-3 py-3 mb-4 rounded-xl border border-dashed border-blue-200 bg-blue-50/50 dark:border-blue-900/60 dark:bg-blue-950/20">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-semibold text-blue-900 dark:text-blue-200">
+                    Guest Mode
+                  </p>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Credential-free
+                  </p>
+                </div>
+                <Link
+                  to="/login"
+                  className="rounded-lg bg-blue-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-blue-700 transition"
+                >
+                  Sign in
+                </Link>
+              </div>
+            </div>
+          )}
+
+          <nav
+            aria-label="Primary"
+            className="mt-2 flex-1 min-h-0 space-y-1 overflow-y-auto pr-1"
+          >
+            {visibleNav.map((item) => (
               <NavLink
                 key={item.to}
                 to={item.to}
                 end={item.end}
-                className={navClass}
+                className={({ isActive }) => navClass({ isActive })}
                 onClick={() => setMobileOpen(false)}
               >
                 <item.icon aria-hidden="true" className="h-4 w-4" />
                 <span className="flex-1">{item.label}</span>
-                {!item.available ? (
-                  <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-                    Planned
-                  </span>
-                ) : null}
               </NavLink>
             ))}
           </nav>
 
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
+          <div className="mt-auto rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
             <p className="font-semibold text-slate-900 dark:text-white">
-              M06 intelligent routing
+              M10 Full-Stack UI Integration
             </p>
             <p className="mt-1 leading-5">
-              Multi-provider routing, circuit breakers, adaptive failover,
-              reliability analytics.
+              Polished fintech dashboard with role-based navigation, real-time
+              APIs, and human-authorized AI assistance.
             </p>
           </div>
+
+          {auth && (
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="mt-4 w-full px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 rounded-lg transition-colors dark:text-red-400 dark:hover:bg-red-950/20"
+            >
+              <LogOut className="h-4 w-4 mr-2" />
+              Sign out
+            </button>
+          )}
         </aside>
 
         {mobileOpen ? (
@@ -248,7 +427,9 @@ export default function Layout() {
             id="main-content"
             className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8"
           >
-            <Outlet />
+            <ErrorBoundary>
+              <Outlet />
+            </ErrorBoundary>
           </main>
         </div>
       </div>
