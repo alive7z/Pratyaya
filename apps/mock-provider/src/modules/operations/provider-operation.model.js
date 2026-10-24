@@ -17,6 +17,12 @@ const PROVIDER_OPERATION_STATUS = Object.freeze({
 
 const providerOperationSchema = new mongoose.Schema(
   {
+    providerId: {
+      type: String,
+      enum: ["alpha", "beta", "gamma"],
+      required: true,
+      index: true,
+    },
     operationId: {
       type: String,
       required: true,
@@ -84,6 +90,10 @@ const providerOperationSchema = new mongoose.Schema(
 
 providerOperationSchema.index({ merchantId: 1, createdAt: -1 });
 providerOperationSchema.index({ clientOperationId: 1, type: 1 });
+providerOperationSchema.index(
+  { providerId: 1, type: 1, idempotencyKey: 1 },
+  { unique: true },
+);
 
 export const ProviderOperation =
   mongoose.models.ProviderOperation ??
