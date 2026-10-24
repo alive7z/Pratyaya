@@ -1,4 +1,5 @@
-import { useQuery, useState } from "react";
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../../app/AuthContext.jsx";
 import { apiClient } from "../../lib/apiClient.js";
 import {
@@ -38,7 +39,11 @@ export function TransactionReview() {
     limit: 50,
   });
 
-  const { data: alertsData } = useQuery({
+  const {
+    data: alertsData,
+    refetch: refetchAlerts,
+    isFetching: fetchingAlerts,
+  } = useQuery({
     queryKey: ["risk-alerts", auth?.merchantId, filters],
     queryFn: () => {
       const params = new URLSearchParams();
@@ -50,29 +55,45 @@ export function TransactionReview() {
     enabled: !!auth,
   });
 
-  const { data: decisionsData } = useQuery({
+  const {
+    data: decisionsData,
+    refetch: refetchDecisions,
+    isFetching: fetchingDecisions,
+  } = useQuery({
     queryKey: ["risk-decisions", auth?.merchantId],
     queryFn: () => apiClient.get("/api/v1/risk/decisions?limit=100"),
     enabled: !!auth,
   });
 
+  const isRefreshing = fetchingAlerts || fetchingDecisions;
   const alerts = alertsData?.data?.items || [];
   const decisions = decisionsData?.data?.items || [];
+
+  const handleRefresh = () => {
+    refetchAlerts();
+    refetchDecisions();
+  };
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
             Transaction Review
           </h1>
-          <p className="text-gray-500 mt-1">
+          <p className="text-gray-500 dark:text-slate-400 mt-1">
             Review and investigate flagged transactions
           </p>
         </div>
-        <Button variant="outline" onClick={() => window.location.reload()}>
-          <Loader2 className="h-4 w-4 mr-2" />
-          Refresh
+        <Button
+          variant="outline"
+          onClick={handleRefresh}
+          disabled={isRefreshing}
+        >
+          <Loader2
+            className={`h-4 w-4 mr-2 ${isRefreshing ? "animate-spin" : ""}`}
+          />
+          {isRefreshing ? "Refreshing…" : "Refresh"}
         </Button>
       </div>
 
