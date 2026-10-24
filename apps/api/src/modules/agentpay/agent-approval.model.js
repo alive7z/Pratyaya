@@ -40,4 +40,5 @@ const approvalSchema = new mongoose.Schema(
 approvalSchema.index({ merchantId: 1, proposalId: 1, createdAt: -1 });
 
 export const AgentApproval =
-  mongoose.models.AgentApproval ?? mongoose.model("AgentApproval", approvalSchema);
+  mongoose.models.AgentApproval ??
+  mongoose.model("AgentApproval", approvalSchema);
