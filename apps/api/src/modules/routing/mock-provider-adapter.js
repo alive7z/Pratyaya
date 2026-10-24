@@ -9,14 +9,16 @@ const DEFAULT_TIMEOUT_MS = 15000;
 const MAX_RETRIES = 3;
 const BASE_RETRY_DELAY_MS = 500;
 
-function signPayload(payload, timestamp, secret) {
-  const message = `${timestamp}.${JSON.stringify(payload)}`;
+function signPayload(bodyText, timestamp, secret) {
+  const message = `${timestamp}.${bodyText}`;
   return createHmac("sha256", secret).update(message).digest("hex");
 }
 
 function buildHeaders(payload, idempotencyKey, secret) {
+  const bodyText =
+    typeof payload === "string" ? payload : JSON.stringify(payload);
   const timestamp = Math.floor(Date.now() / 1000).toString();
-  const signature = signPayload(payload, timestamp, secret);
+  const signature = signPayload(bodyText, timestamp, secret);
   return {
     "Content-Type": "application/json",
     "X-Request-ID": crypto.randomUUID(),
@@ -423,7 +425,7 @@ export class MockProviderAdapter extends ProviderAdapter {
       `${this.baseUrl}/provider/v1/operations/${operationId}`,
       {
         method: "GET",
-        headers: buildHeaders({}, `get-${operationId}`, this.hmacSecret),
+        headers: buildHeaders("", `get-${operationId}`, this.hmacSecret),
       },
     );
 
