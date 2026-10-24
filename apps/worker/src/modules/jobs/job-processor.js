@@ -1,8 +1,7 @@
 import { JOB_TYPES } from "@pratyaya/shared";
-import { createPaymentOrchestratorService } from "../../../api/src/modules/payments/operations/payment-orchestrator.service.js";
-import { loadConfig } from "../../config.js";
+import { createPaymentOrchestratorService } from "../../../../api/src/modules/payments/operations/payment-orchestrator.service.js";
+import { loadWorkerConfig } from "../../config.js";
 import { createLogger } from "../../logger.js";
-import { connectMongo } from "../../db/mongoose.js";
 
 const logger = createLogger({
   level: "info",
@@ -14,8 +13,7 @@ let config;
 
 async function initializeOrchestrator() {
   if (!orchestrator) {
-    config = loadConfig();
-    await connectMongo(config.mongodb, logger);
+    config = loadWorkerConfig();
     orchestrator = await createPaymentOrchestratorService(config, logger);
   }
   return orchestrator;
