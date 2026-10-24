@@ -18,6 +18,24 @@ const booleanString = (defaultValue = "false") =>
     .default(defaultValue)
     .transform((value) => value === "true" || value === "1");
 
+const faultRuleSchema = z
+  .object({
+    type: z.enum(["timeout", "decline", "latency", "error", "duplicate_webhook"]),
+    enabled: z.boolean().default(false),
+    delayMs: z.coerce.number().int().min(0).max(60000).optional(),
+    statusCode: z.coerce.number().int().min(400).max(599).optional(),
+    code: z.string().trim().max(64).optional(),
+    message: z.string().trim().max(240).optional(),
+  })
+  .strict();
+
+const faultsSchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    rules: z.array(faultRuleSchema).max(10).default([]),
+  })
+  .strict();
+
 const envSchema = z.object({
   NODE_ENV: z
     .enum(["development", "test", "production"])
@@ -42,6 +60,12 @@ const envSchema = z.object({
   MONGODB_CONNECT_TIMEOUT_MS: z.coerce.number().int().min(1000).default(10000),
   MONGODB_SOCKET_TIMEOUT_MS: z.coerce.number().int().min(1000).default(45000),
   MONGODB_AUTO_INDEX: booleanString("true"),
+  PROVIDER_FAULTS: z
+    .string()
+    .optional()
+    .transform((val) => (val ? JSON.parse(val) : { enabled: false, rules: [] }))
+    .pipe(faultsSchema)
+    .default({ enabled: false, rules: [] }),
 });
 
 export function loadConfig() {
@@ -76,6 +100,7 @@ export function loadConfig() {
       socketTimeoutMs: env.MONGODB_SOCKET_TIMEOUT_MS,
       autoIndex: env.MONGODB_AUTO_INDEX,
     }),
+    faults: env.PROVIDER_FAULTS,
     service: Object.freeze({
       name: "pratyaya-mock-provider",
       version: packageJson.version,
