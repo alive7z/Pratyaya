@@ -29,6 +29,7 @@
     "test:integration:api": "RUN_INTEGRATION_TESTS=1 npm exec --workspace @pratyaya/api -- vitest run --no-file-parallelism",
     "test:integration:provider": "npm run test:integration --workspace @pratyaya/mock-provider",
     "db:check": "npm run db:check --workspace @pratyaya/api && npm run db:check --workspace @pratyaya/mock-provider && npm run db:check --workspace @pratyaya/worker",
+    "db:migrate:provider": "npm run db:migrate --workspace @pratyaya/mock-provider",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "docker:up": "docker compose --env-file .env up --build",

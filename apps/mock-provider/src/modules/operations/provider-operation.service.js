@@ -111,7 +111,9 @@ export async function createAuthorization({
     return { operation: existing, idempotent: true };
   }
 
-  const operationId = `op_${randomUUID().replace(/-/g, "").slice(0, 24)}`;
+  // The caller persists clientOperationId before dispatch. Reusing it here
+  // makes provider lookup safe after a lost response or timeout.
+  const operationId = clientOperationId;
 
   const fault = getFaultConfig(providerConfig);
   let status = PROVIDER_OPERATION_STATUS.RECEIVED;
@@ -258,7 +260,7 @@ export async function createCapture({ body, providerConfig, session, isDemo }) {
     return { operation: existing, idempotent: true };
   }
 
-  const operationId = `op_${randomUUID().replace(/-/g, "").slice(0, 24)}`;
+  const operationId = clientOperationId;
 
   const fault = getFaultConfig(providerConfig);
   let status = PROVIDER_OPERATION_STATUS.RECEIVED;
@@ -408,7 +410,7 @@ export async function createRefund({ body, providerConfig, session, isDemo }) {
     return { operation: existing, idempotent: true };
   }
 
-  const operationId = `op_${randomUUID().replace(/-/g, "").slice(0, 24)}`;
+  const operationId = clientOperationId;
 
   const fault = getFaultConfig(providerConfig);
   let status = PROVIDER_OPERATION_STATUS.RECEIVED;

@@ -161,27 +161,36 @@ export const paymentsApi = {
       `/payments/${id}/refunds`,
       idempotentJsonOptions("POST", body, idempotencyKey),
     ),
-  getRefund: (id) => request(`/refunds/${id}`),
+  getRefund: (id) => request(`/payments/refunds/${id}`),
   processRefund: (id) =>
-    request(`/refunds/${id}/process`, jsonOptions("POST", {}, { csrf: true })),
+    request(
+      `/payments/refunds/${id}/process`,
+      jsonOptions("POST", {}, { csrf: true }),
+    ),
   confirmRefund: (id, body) =>
     request(
-      `/refunds/${id}/confirm`,
+      `/payments/refunds/${id}/confirm`,
       jsonOptions("POST", body, { csrf: true }),
     ),
   failRefund: (id, body) =>
-    request(`/refunds/${id}/fail`, jsonOptions("POST", body, { csrf: true })),
+    request(
+      `/payments/refunds/${id}/fail`,
+      jsonOptions("POST", body, { csrf: true }),
+    ),
 };
 
 export const webhooksApi = {
   provider: (body) => request("/webhooks/provider", jsonOptions("POST", body)),
   listInbox: (query = {}) => request(`/webhooks/inbox${queryString(query)}`),
   retryInbox: (id) =>
-    request(`/webhooks/inbox/${id}/retry`, jsonOptions("POST", {})),
+    request(
+      `/webhooks/inbox/${id}/retry`,
+      jsonOptions("POST", {}, { csrf: true }),
+    ),
 };
 
 export const providerApi = {
-  health: () => request("/providers/health"),
+  health: () => request("/routing/providers"),
   operations: (query = {}) =>
     request(`/sandbox/provider-operations${queryString(query)}`),
 };
@@ -190,8 +199,11 @@ export const reconciliationApi = {
   list: (query = {}) => request(`/reconciliation${queryString(query)}`),
   summary: () => request("/reconciliation/summary"),
   checkPayment: (id) =>
-    request(`/reconciliation/${id}/check`, jsonOptions("POST", {})),
-  getRecord: (id) => request(`/reconciliation/${id}`),
+    request(
+      `/reconciliation/${id}/check`,
+      jsonOptions("POST", {}, { csrf: true }),
+    ),
+  getRecord: (id) => request(`/reconciliation/records/${id}`),
   listCases: (query = {}) =>
     request(`/reconciliation/cases${queryString(query)}`),
   getCase: (id) => request(`/reconciliation/cases/${id}`),
@@ -263,8 +275,13 @@ export const sandboxApi = {
   webhooks: (query = {}) => request(`/sandbox/webhooks${queryString(query)}`),
   outbox: (query = {}) => request(`/sandbox/outbox${queryString(query)}`),
   faults: () => request("/sandbox/faults"),
-  setFaults: (body) => request("/sandbox/faults", jsonOptions("POST", body)),
-  clearFaults: () => request("/sandbox/faults", { method: "DELETE" }),
+  setFaults: (body) =>
+    request("/sandbox/faults", jsonOptions("POST", body, { csrf: true })),
+  clearFaults: () =>
+    request("/sandbox/faults", {
+      method: "DELETE",
+      headers: csrfToken() ? { "X-CSRF-Token": csrfToken() } : {},
+    }),
 };
 
 export const apiClient = {

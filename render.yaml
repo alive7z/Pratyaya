@@ -41,6 +41,7 @@ services:
     plan: 0.5c-512mb
     region: singapore
     buildCommand: npm ci --omit=dev
+    preDeployCommand: npm run db:migrate:provider
     startCommand: npm run start:provider
     healthCheckPath: /health/ready
     autoDeployTrigger: checksPass

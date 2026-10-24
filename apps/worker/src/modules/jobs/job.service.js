@@ -56,25 +56,33 @@ export async function createJob({
     return { job: existing, idempotent: true };
   }
 
-  const [job] = await Job.create(
-    [
-      {
-        jobId,
-        type,
-        merchantId,
-        paymentId,
-        refundId,
-        sourceEventId,
-        payload,
-        status: JOB_STATUS.PENDING,
-        priority,
-        maxAttempts,
-        nextAttemptAt: now(),
-        isDemo,
-      },
-    ],
-    { session },
-  );
+  let job;
+  try {
+    [job] = await Job.create(
+      [
+        {
+          jobId,
+          type,
+          merchantId,
+          paymentId,
+          refundId,
+          sourceEventId,
+          payload,
+          status: JOB_STATUS.PENDING,
+          priority,
+          maxAttempts,
+          nextAttemptAt: now(),
+          isDemo,
+        },
+      ],
+      { session },
+    );
+  } catch (error) {
+    if (error?.code !== 11000) throw error;
+    const concurrent = await Job.findOne({ jobId }).session(session).lean();
+    if (!concurrent) throw error;
+    return { job: concurrent, idempotent: true };
+  }
 
   return { job, idempotent: false };
 }
@@ -240,7 +248,7 @@ export async function createJobsFromOutbox({
   batchSize = 50,
   session,
 }) {
-  const events = await OutboxEvent.find({
+  const candidates = await OutboxEvent.find({
     state: OUTBOX_STATE.PENDING,
     availableAt: { $lte: now() },
     $or: [{ leaseUntil: { $exists: false } }, { leaseUntil: { $lt: now() } }],
@@ -250,13 +258,49 @@ export async function createJobsFromOutbox({
     .session(session);
 
   const created = [];
-  for (const event of events) {
-    const jobType = mapOutboxEventToJobType(event.eventType);
-    if (!jobType) continue;
+  for (const candidate of candidates) {
+    const leaseUntil = new Date(Date.now() + DEFAULT_LEASE_DURATION_MS);
+    const event = await OutboxEvent.findOneAndUpdate(
+      {
+        _id: candidate._id,
+        state: OUTBOX_STATE.PENDING,
+        availableAt: { $lte: now() },
+        $or: [
+          { leaseUntil: { $exists: false } },
+          { leaseUntil: { $lt: now() } },
+        ],
+      },
+      {
+        $set: {
+          leaseOwner: workerId,
+          leaseUntil,
+          leasedAt: now(),
+        },
+      },
+      { returnDocument: "after", session },
+    );
+    if (!event) continue;
 
-    const idempotencyKey = event.idempotencyKeyHash
-      ? `outbox:${event._id}:${event.idempotencyKeyHash}`
-      : null;
+    const jobType = mapOutboxEventToJobType(event.eventType);
+    if (!jobType) {
+      await OutboxEvent.updateOne(
+        { _id: event._id, leaseOwner: workerId },
+        {
+          $set: {
+            state: OUTBOX_STATE.FAILED,
+            failedAt: now(),
+            error: `Unsupported outbox event type: ${event.eventType}`,
+          },
+          $unset: { leaseOwner: 1, leaseUntil: 1, leasedAt: 1 },
+        },
+        { session },
+      );
+      continue;
+    }
+
+    const idempotencyKey = `outbox:${event._id}:${
+      event.idempotencyKeyHash ?? "event"
+    }`;
 
     const result = await createJob({
       type: jobType,
@@ -271,20 +315,11 @@ export async function createJobsFromOutbox({
       session,
     });
 
-    if (!result.idempotent) {
-      await OutboxEvent.updateOne(
-        { _id: event._id },
-        {
-          $set: {
-            state: OUTBOX_STATE.PROCESSING,
-            leaseOwner: workerId,
-            leaseUntil: new Date(Date.now() + DEFAULT_LEASE_DURATION_MS),
-            leasedAt: now(),
-          },
-        },
-        { session },
-      );
-    }
+    await OutboxEvent.updateOne(
+      { _id: event._id, state: OUTBOX_STATE.PENDING, leaseOwner: workerId },
+      { $set: { state: OUTBOX_STATE.PROCESSING } },
+      { session },
+    );
 
     created.push(result.job);
   }
@@ -336,25 +371,32 @@ export async function markOutboxEventDispatched({
 
 export async function markOutboxEventFailed({
   outboxEventId,
-  _workerId,
+  workerId,
   error,
   session,
 }) {
-  const event = await OutboxEvent.findById(outboxEventId)
+  const event = await OutboxEvent.findOne({
+    _id: outboxEventId,
+    leaseOwner: workerId,
+  })
     .session(session)
     .lean();
   if (!event) return;
 
-  const nextAttempt = (event.attempts ?? 0) >= 5;
-  const nextState = nextAttempt ? OUTBOX_STATE.FAILED : OUTBOX_STATE.PENDING;
+  const attempts = (event.attempts ?? 0) + 1;
+  const exhausted = attempts >= 5;
+  const nextState = exhausted ? OUTBOX_STATE.FAILED : OUTBOX_STATE.PENDING;
 
   await OutboxEvent.updateOne(
-    { _id: outboxEventId },
+    { _id: outboxEventId, leaseOwner: workerId },
     {
       $set: {
         state: nextState,
         error: error?.message ?? "Unknown error",
-        failedAt: nextAttempt ? now() : null,
+        failedAt: exhausted ? now() : null,
+        availableAt: exhausted
+          ? event.availableAt
+          : new Date(Date.now() + calculateBackoff(attempts)),
       },
       $inc: { attempts: 1 },
       $unset: { leaseOwner: 1, leaseUntil: 1, leasedAt: 1 },

@@ -1,9 +1,11 @@
 import express from "express";
 import { z } from "zod";
+import { PERMISSIONS } from "@pratyaya/shared";
+import { authenticate } from "../../middleware/authenticate.js";
+import { authorize } from "../../middleware/authorize.js";
+import { requireCsrf } from "../../middleware/csrf.js";
 import { validate } from "../../middleware/validate.js";
 import { createRefundService } from "./refund.service.js";
-
-const router = express.Router();
 
 const amountMinorSchema = z
   .string()
@@ -59,143 +61,164 @@ const refundFailSchema = z
   })
   .strict();
 
-let refundService;
+export function createRefundRouter({ config }) {
+  const router = express.Router();
+  const requireAuth = authenticate({ config });
+  let refundService;
 
-router.use(async (req, res, next) => {
-  if (!refundService) {
-    refundService = await createRefundService(
-      req.app.locals.config,
-      req.app.locals.logger,
-    );
-  }
-  next();
-});
+  router.use(requireAuth);
+  router.use(async (req, _res, next) => {
+    if (!refundService) {
+      refundService = await createRefundService(
+        req.app.locals.config,
+        req.app.locals.logger,
+      );
+    }
+    next();
+  });
 
-router.post(
-  "/:paymentId/refunds",
-  validate(refundCreateSchema),
-  async (req, res, next) => {
-    try {
-      const key = req.headers["idempotency-key"];
-      if (!key) {
-        return res.status(400).json({
-          error: {
-            code: "IDEMPOTENCY_KEY_REQUIRED",
-            message: "Idempotency-Key header is required",
+  router.post(
+    "/:paymentId/refunds",
+    authorize(PERMISSIONS.PAYMENTS_CREATE),
+    requireCsrf,
+    validate({ body: refundCreateSchema }),
+    async (req, res, next) => {
+      try {
+        const key = req.headers["idempotency-key"];
+        if (!key) {
+          return res.status(400).json({
+            error: {
+              code: "IDEMPOTENCY_KEY_REQUIRED",
+              message: "Idempotency-Key header is required",
+            },
+            meta: { requestId: req.requestId },
+          });
+        }
+        const result = await refundService.requestRefund({
+          auth: req.auth,
+          paymentId: req.params.paymentId,
+          body: req.body,
+          req: { headers: { "idempotency-key": key } },
+        });
+        res.status(result.idempotent ? 200 : 201).json({
+          data: result.refund,
+          meta: { requestId: req.requestId, idempotent: result.idempotent },
+        });
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
+
+  router.get(
+    "/:paymentId/refunds",
+    authorize(PERMISSIONS.PAYMENTS_READ),
+    validate({ query: refundQuerySchema }),
+    async (req, res, next) => {
+      try {
+        const result = await refundService.listRefunds({
+          auth: req.auth,
+          paymentId: req.params.paymentId,
+          query: req.query,
+        });
+        res.json({
+          data: result,
+          meta: { requestId: req.requestId },
+        });
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
+
+  router.get(
+    "/refunds/:refundId",
+    authorize(PERMISSIONS.PAYMENTS_READ),
+    async (req, res, next) => {
+      try {
+        const refund = await refundService.getRefund({
+          auth: req.auth,
+          refundId: req.params.refundId,
+        });
+        res.json({
+          data: refund,
+          meta: { requestId: req.requestId },
+        });
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
+
+  router.post(
+    "/refunds/:refundId/process",
+    authorize(PERMISSIONS.PAYMENTS_CREATE),
+    requireCsrf,
+    async (req, res, next) => {
+      try {
+        const result = await refundService.processRefund({
+          refundId: req.params.refundId,
+          auth: req.auth,
+        });
+        res.json({
+          data: result.refund,
+          meta: { requestId: req.requestId },
+        });
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
+
+  router.post(
+    "/refunds/:refundId/confirm",
+    authorize(PERMISSIONS.PAYMENTS_CREATE),
+    requireCsrf,
+    validate({ body: refundConfirmSchema }),
+    async (req, res, next) => {
+      try {
+        const result = await refundService.confirmRefund({
+          refundId: req.params.refundId,
+          auth: req.auth,
+          providerEventId: req.body.providerEventId,
+          amountMinor: req.body.amountMinor,
+        });
+        res.json({
+          data: {
+            refund: result.refund,
+            payment: result.payment,
+            journal: result.journal,
           },
           meta: { requestId: req.requestId },
         });
+      } catch (error) {
+        next(error);
       }
-      const result = await refundService.requestRefund({
-        auth: req.auth,
-        paymentId: req.params.paymentId,
-        body: req.body,
-        req: { headers: { "idempotency-key": key } },
-      });
-      res.status(result.idempotent ? 200 : 201).json({
-        data: result.refund,
-        meta: { requestId: req.requestId, idempotent: result.idempotent },
-      });
-    } catch (error) {
-      next(error);
-    }
-  },
-);
+    },
+  );
 
-router.get(
-  "/:paymentId/refunds",
-  validate(refundQuerySchema),
-  async (req, res, next) => {
-    try {
-      const result = await refundService.listRefunds({
-        auth: req.auth,
-        paymentId: req.params.paymentId,
-        query: req.query,
-      });
-      res.json({
-        data: result,
-        meta: { requestId: req.requestId },
-      });
-    } catch (error) {
-      next(error);
-    }
-  },
-);
+  router.post(
+    "/refunds/:refundId/fail",
+    authorize(PERMISSIONS.PAYMENTS_CREATE),
+    requireCsrf,
+    validate({ body: refundFailSchema }),
+    async (req, res, next) => {
+      try {
+        const result = await refundService.failRefund({
+          refundId: req.params.refundId,
+          auth: req.auth,
+          reason: req.body.reason,
+          metadata: req.body.metadata,
+        });
+        res.json({
+          data: result.refund,
+          meta: { requestId: req.requestId },
+        });
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
 
-router.get("/refunds/:refundId", async (req, res, next) => {
-  try {
-    const refund = await refundService.getRefund({
-      auth: req.auth,
-      refundId: req.params.refundId,
-    });
-    res.json({
-      data: refund,
-      meta: { requestId: req.requestId },
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
-router.post("/refunds/:refundId/process", async (req, res, next) => {
-  try {
-    const result = await refundService.processRefund({
-      refundId: req.params.refundId,
-      auth: req.auth,
-    });
-    res.json({
-      data: result.refund,
-      meta: { requestId: req.requestId },
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
-router.post(
-  "/refunds/:refundId/confirm",
-  validate(refundConfirmSchema),
-  async (req, res, next) => {
-    try {
-      const result = await refundService.confirmRefund({
-        refundId: req.params.refundId,
-        auth: req.auth,
-        providerEventId: req.body.providerEventId,
-        amountMinor: req.body.amountMinor,
-      });
-      res.json({
-        data: {
-          refund: result.refund,
-          payment: result.payment,
-          journal: result.journal,
-        },
-        meta: { requestId: req.requestId },
-      });
-    } catch (error) {
-      next(error);
-    }
-  },
-);
-
-router.post(
-  "/refunds/:refundId/fail",
-  validate(refundFailSchema),
-  async (req, res, next) => {
-    try {
-      const result = await refundService.failRefund({
-        refundId: req.params.refundId,
-        auth: req.auth,
-        reason: req.body.reason,
-        metadata: req.body.metadata,
-      });
-      res.json({
-        data: result.refund,
-        meta: { requestId: req.requestId },
-      });
-    } catch (error) {
-      next(error);
-    }
-  },
-);
-
-export default router;
+  return router;
+}

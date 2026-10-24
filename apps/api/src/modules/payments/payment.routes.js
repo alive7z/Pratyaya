@@ -15,7 +15,7 @@ import {
   summary,
   timeline,
 } from "./payment.controller.js";
-import refundRoutes from "./refund.routes.js";
+import { createRefundRouter } from "./refund.routes.js";
 
 const paymentIdSchema = z.object({
   paymentId: z.string().regex(/^[0-9a-fA-F]{24}$/, "Invalid payment ID"),
@@ -74,6 +74,10 @@ export function createPaymentRouter({ config }) {
     create,
   );
 
+  // Register the literal /refunds and nested refund routes before /:paymentId
+  // so Express cannot interpret "refunds" as a payment ID.
+  router.use(createRefundRouter({ config }));
+
   router.get(
     "/:paymentId",
     requireAuth,
@@ -115,9 +119,6 @@ export function createPaymentRouter({ config }) {
     validate({ params: paymentIdSchema }),
     cancel,
   );
-
-  router.use("/:paymentId/refunds", refundRoutes);
-  router.use("/refunds", refundRoutes);
 
   return router;
 }

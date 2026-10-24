@@ -113,3 +113,15 @@ export async function getRules(req, res, next) {
     next(error);
   }
 }
+
+export async function listRiskAlerts(req, res, next) {
+  try {
+    const result = await riskDecisionService.listAlerts({
+      auth: req.auth,
+      query: req.validated.query,
+    });
+    sendData(req, res, result, 200);
+  } catch (error) {
+    next(error);
+  }
+}

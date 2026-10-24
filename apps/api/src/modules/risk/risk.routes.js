@@ -3,6 +3,7 @@ import { PERMISSIONS } from "@pratyaya/shared";
 import { z } from "zod";
 import { authenticate } from "../../middleware/authenticate.js";
 import { authorize } from "../../middleware/authorize.js";
+import { requireCsrf } from "../../middleware/csrf.js";
 import { validate } from "../../middleware/validate.js";
 import {
   evaluateRisk,
@@ -11,6 +12,7 @@ import {
   getRiskSummary,
   overrideRiskDecision,
   getRules,
+  listRiskAlerts,
 } from "./risk-decision.controller.js";
 
 export function createRiskRouter({ config }) {
@@ -47,6 +49,7 @@ export function createRiskRouter({ config }) {
     "/evaluate",
     requireAuth,
     authorize(PERMISSIONS.PAYMENTS_CREATE),
+    requireCsrf,
     validate({
       body: z
         .object({
@@ -94,6 +97,7 @@ export function createRiskRouter({ config }) {
     "/decisions/:decisionId/override",
     requireAuth,
     authorize(PERMISSIONS.RISK_ALERTS_READ),
+    requireCsrf,
     validate({
       params: z
         .object({ decisionId: z.string().regex(/^[0-9a-fA-F]{24}$/) })
@@ -112,6 +116,31 @@ export function createRiskRouter({ config }) {
     requireAuth,
     authorize(PERMISSIONS.RISK_DASHBOARD_READ),
     getRules,
+  );
+
+  router.get(
+    "/alerts",
+    requireAuth,
+    authorize(PERMISSIONS.RISK_ALERTS_READ),
+    validate({
+      query: z
+        .object({
+          severity: z.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]).optional(),
+          status: z
+            .enum(["OPEN", "IN_REVIEW", "ESCALATED", "CLEARED"])
+            .optional(),
+          ruleCode: z.string().trim().max(80).optional(),
+          paymentId: z
+            .string()
+            .regex(/^[0-9a-fA-F]{24}$/)
+            .optional(),
+          from: z.string().datetime().optional(),
+          to: z.string().datetime().optional(),
+          limit: z.coerce.number().int().min(1).max(100).default(50),
+        })
+        .strict(),
+    }),
+    listRiskAlerts,
   );
 
   return router;

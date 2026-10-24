@@ -6,8 +6,8 @@ import { AppError } from "../../lib/errors.js";
 
 const MAX_TIMESTAMP_DRIFT_SECONDS = 300;
 
-function verifySignature(payload, signature, timestamp, secret) {
-  const message = `${timestamp}.${JSON.stringify(payload)}`;
+function verifySignature(rawBody, signature, timestamp, secret) {
+  const message = `${timestamp}.${rawBody.toString("utf8")}`;
   const expectedSignature = createHmac("sha256", secret)
     .update(message)
     .digest("hex");
@@ -19,9 +19,10 @@ function verifySignature(payload, signature, timestamp, secret) {
 
 export async function processProviderWebhook({
   payload,
+  rawBody,
   headers,
   config,
-  _logger,
+  logger,
 }) {
   const signature = headers["x-signature"];
   const timestamp = headers["x-timestamp"];
@@ -55,7 +56,7 @@ export async function processProviderWebhook({
 
   if (
     !verifySignature(
-      payload,
+      rawBody ?? Buffer.from(JSON.stringify(payload)),
       signature,
       timestamp,
       config.mockProviderHmacSecret,
@@ -118,7 +119,12 @@ export async function processProviderWebhook({
         { session },
       );
 
-      await processInboxEvent({ inboxEventId: inboxEvent._id, session });
+      await processInboxEvent({
+        inboxEventId: inboxEvent._id,
+        session,
+        config,
+        logger,
+      });
 
       return { inboxEvent, duplicate: false };
     });
@@ -127,7 +133,7 @@ export async function processProviderWebhook({
   }
 }
 
-async function processInboxEvent({ inboxEventId, session }) {
+async function processInboxEvent({ inboxEventId, session, config, logger }) {
   const inboxEvent = await InboxEvent.findById(inboxEventId).session(session);
   if (!inboxEvent) return;
 
@@ -139,17 +145,14 @@ async function processInboxEvent({ inboxEventId, session }) {
 
   try {
     const payload = inboxEvent.payload;
-    const orchestrator = await createPaymentOrchestratorService(
-      { mockProviderHmacSecret: "" },
-      { info: () => {}, warn: () => {}, error: () => {} },
-    );
+    const orchestrator = await createPaymentOrchestratorService(config, logger);
 
     const auth = {
       merchantId: inboxEvent.merchantId,
       isDemo: inboxEvent.isDemo,
       role: "webhook",
-      config: { mockProviderHmacSecret: "" },
-      logger: { info: () => {}, warn: () => {}, error: () => {} },
+      config,
+      logger,
     };
 
     if (inboxEvent.eventType === "authorization.completed") {
@@ -212,7 +215,12 @@ export async function getInboxEvents({ merchantId, query }) {
   return { events, count: events.length };
 }
 
-export async function retryInboxEvent({ inboxEventId, merchantId }) {
+export async function retryInboxEvent({
+  inboxEventId,
+  merchantId,
+  config,
+  logger,
+}) {
   const inboxEvent = await InboxEvent.findOne({
     _id: inboxEventId,
     merchantId,
@@ -234,5 +242,5 @@ export async function retryInboxEvent({ inboxEventId, merchantId }) {
     { $set: { processingStatus: "PENDING" } },
   );
 
-  return processInboxEvent({ inboxEventId });
+  return processInboxEvent({ inboxEventId, config, logger });
 }

@@ -1,403 +1,196 @@
-<div align="center">
+# Pratyaya
 
-# PRATYAYA
+Pratyaya is a synthetic payment reliability and agentic-authorization lab. It demonstrates idempotent payment APIs, merchant isolation, durable background work, provider uncertainty, reconciliation, and double-entry accounting without accepting real payment credentials or moving money.
 
-### Trust in Every Transaction.
+> **Simulation only:** use fictional merchants, users, invoices, tokens, and amounts. Pratyaya is not a gateway, bank, PCI-certified system, or production financial product.
 
-**An engineering playground for the moments when payments don't go as planned.**
+## What is implemented
 
-<p>
-  <img alt="JavaScript" src="https://img.shields.io/badge/JavaScript-18181B?style=for-the-badge&logo=javascript&logoColor=F7DF1E" />
-  <img alt="Node.js" src="https://img.shields.io/badge/Node.js-18181B?style=for-the-badge&logo=nodedotjs&logoColor=5FA04E" />
-  <img alt="React" src="https://img.shields.io/badge/React-18181B?style=for-the-badge&logo=react&logoColor=61DAFB" />
-  <img alt="MongoDB" src="https://img.shields.io/badge/MongoDB_Atlas-18181B?style=for-the-badge&logo=mongodb&logoColor=47A248" />
-</p>
+- React/Vite operations UI with login, credential-free Explore-as-role flows, payment, ledger, routing, risk, reliability, webhook, and AgentPay views.
+- Express modular-monolith API using JavaScript ES modules, Zod validation, structured errors, request IDs, rate limits, Helmet, CORS, JWT sessions, HttpOnly cookies, CSRF protection, RBAC, and merchant-scoped queries.
+- MongoDB Atlas persistence through Mongoose, with replica-set transactions for multi-document financial effects.
+- Merchant-scoped idempotency records with canonical request fingerprints and unique indexes.
+- Append-only double-entry journals with debit/credit and currency balance checks.
+- MongoDB transactional outbox, deterministic jobs, conditional leases, retries, stale-job recovery, and dead-letter states.
+- Independent mock provider with HMAC-authenticated requests, idempotent operations, provider-side persistence, and synthetic timeout/decline/error modes.
+- Reconciliation, provider routing/health, webhook inbox deduplication, risk rules, and human-approved AgentPay proposal flows.
+- OpenAPI, Docker Compose, GitHub Actions, Vercel configuration, Render Blueprint, deployment validation, and hosted smoke-test scripts.
 
-<p>
-  <img alt="Simulated payments" src="https://img.shields.io/badge/Payments-Simulation_Only-2563EB?style=flat-square" />
-  <img alt="Backend first" src="https://img.shields.io/badge/Focus-Backend_%2B_Reliability-475569?style=flat-square" />
-  <img alt="JavaScript codebase" src="https://img.shields.io/badge/Codebase-JavaScript-475569?style=flat-square" />
-</p>
+Implementation does not equal production certification. Current engineering limitations are listed below and in [the deployment guide](docs/deployment.md).
 
-[The idea](#the-idea) · [Explore the sandbox](#explore-the-sandbox) · [How it works](#how-it-works) · [Reliability Lab](#break-a-payment-on-purpose) · [Run locally](#run-it-locally) · [Security](#security-first-even-in-a-sandbox)
-
-</div>
-
----
-
-## The idea
-
-Most payment demos show a checkout button, a spinner, and a green **Payment successful** message.
-
-But what if the payment _did_ succeed and the network response never arrived? What if someone clicked **Pay** five times? What happens if a worker stops halfway through a refund?
-
-That's the part I wanted to explore with **Pratyaya**.
-
-Pratyaya is a **backend-first, full-stack fintech simulation** focused on making payment behavior understandable, recoverable, and auditable. It brings together a React operations dashboard, an Express API, MongoDB-backed financial records, simulated payment providers, and controlled failure experiments.
-
-> [!IMPORTANT]
-> **No real money moves through Pratyaya.** Payments, customers, providers, invoices, and balances are synthetic. This is an independent engineering project, not a payment network, banking service, or PCI-certified product.
-
-### The questions behind the project
-
-| Question                                     | Engineering approach                                                                               |
-| :------------------------------------------- | :------------------------------------------------------------------------------------------------- |
-| What if the same request arrives 100 times?  | Merchant-scoped **idempotency keys**, request fingerprints, and unique MongoDB indexes.            |
-| What if the provider succeeds but times out? | Preserve the original operation ID, mark the outcome **uncertain**, and reconcile before retrying. |
-| How do we know the money adds up?            | **Double-entry journals** where total debits equal total credits.                                  |
-| What if a background worker crashes?         | Durable jobs, leases, retries, and recovery rather than an in-memory queue.                        |
-| Which provider should handle a new payment?  | Explainable routing based on health, latency, and synthetic cost—without unsafe failover.          |
-| Can an AI agent pay an invoice on its own?   | It can propose a payment; deterministic policies and **human approval** control execution.         |
-
-## Explore the sandbox
-
-Pratyaya is designed to be approachable even if you don't have an account. The intended demo experience offers **one-click, credential-free access** on the Login and Register pages, with an isolated sandbox for each role.
-
-| Choose a perspective | What to explore                                                                                        |
-| :------------------- | :----------------------------------------------------------------------------------------------------- |
-| **Merchant**         | Create simulated payments, track their state, inspect captures and refunds, and understand the ledger. |
-| **Admin**            | Review sandbox operations, reconciliation issues, provider health, and integrity reports.              |
-| **Developer**        | Inspect API behavior, idempotency, webhooks, traces, and controlled failure experiments.               |
-| **Risk Analyst**     | Review unusual payment patterns, explainable risk decisions, and transaction investigations.           |
-
-**No email, password, or OTP should be needed for these demo paths.** Standard authenticated accounts are a separate experience. Demo permissions must still be enforced by the backend.
-
-<details>
-<summary><strong>What's a good 60-second tour?</strong></summary>
-
-1. Choose **Explore as Developer** from the application's Login or Register screen.
-2. Open the **Payments** workspace and create a fictional INR payment.
-3. Retry the same request with its original `Idempotency-Key` and check that it stays one logical payment.
-4. Follow its **Transaction Time Machine** timeline: request → worker → provider → result → ledger.
-5. Run an authorized **provider timeout** scenario in the Reliability Lab.
-6. Inspect the reconciliation decision and the financial integrity check.
-
-The availability of individual screens depends on which milestones have been implemented. See the code and `docs/PROGRESS.md` for verified progress.
-
-</details>
-
-## What Pratyaya is designed to do
-
-<details open>
-<summary><strong>01 · Payment core — correctness before speed</strong></summary>
-
-- Accept simulated payment intents through validated, merchant-scoped REST APIs.
-- Prevent duplicate logical operations with idempotency records and database constraints.
-- Follow explicit authorization, capture, failure, cancellation, and refund states.
-- Use integer **minor currency units** (for example, `125000` paise = ₹1,250.00), not floating-point money.
-- Separate confirmed provider outcomes from **unknown** outcomes.
-
-</details>
-
-<details>
-<summary><strong>02 · Financial ledger — every movement has a matching entry</strong></summary>
-
-- Post balanced debit/credit journals for confirmed simulated captures and refunds.
-- Keep posted journals append-only through application permissions and correction entries.
-- Link each journal to the operation that caused it.
-- Check for duplicate postings, missing journals, currency mismatches, and refund overages.
-
-</details>
-
-<details>
-<summary><strong>03 · Resilience — the system should survive a bad day</strong></summary>
-
-- Persist jobs and outbox events in MongoDB.
-- Recover abandoned work through leases and stable operation IDs.
-- Process signed webhooks with replay and duplicate-event protection.
-- Reconcile payment outcomes that cannot safely be classified as success or failure.
-- Simulate provider delays, declines, outages, duplicate webhooks, and worker crashes.
-
-</details>
-
-<details>
-<summary><strong>04 · Intelligent routing — choose carefully, fail over safely</strong></summary>
-
-- Compare simulated providers using observed availability, latency, and configured cost.
-- Explain _why_ a provider was selected.
-- Use circuit breakers to avoid sending new work to unhealthy providers.
-- **Never blindly reroute an already-dispatched payment after a timeout.**
-
-</details>
-
-<details>
-<summary><strong>05 · AgentPay — AI suggests, people authorize</strong></summary>
-
-- Extract proposed details from synthetic invoices.
-- Check supplier allowlists, spending limits, duplicate invoices, and risk rules.
-- Require explicit human approval tied to the exact payment details.
-- Prevent an AI response from becoming an execution permission.
-
-</details>
-
-## How it works
-
-The architecture keeps the UI, financial source of truth, background processing, and mock payment network separate. The default plan is a **modular monolith with independently runnable workers/providers**, not a maze of unnecessary microservices.
+## Architecture
 
 ```mermaid
-flowchart TD
-    UI["React dashboard"] --> API["Express API"]
-    API --> AUTH["Authentication + merchant-scoped RBAC"]
-    AUTH --> CORE["Payment orchestration + idempotency"]
-    CORE --> DB[("MongoDB Atlas")]
-    CORE --> OUT["Transactional outbox"]
-    OUT --> WORKER["Durable MongoDB worker"]
-    WORKER --> ROUTE["Routing + risk rules"]
-    ROUTE --> PROVIDER["Independent mock providers"]
-    PROVIDER -->|"Confirmed result or uncertain outcome"| WORKER
-    WORKER --> RECON["Reconciliation"]
-    RECON --> DB
-    RECON --> LEDGER["Double-entry ledger + audit trail"]
-    LEDGER --> DB
-    DB --> API
-    API --> UI
+flowchart LR
+    Browser["React / Vite SPA"] -->|same-origin /api proxy| API["Express API"]
+    API --> Auth["Auth, RBAC, merchant scope"]
+    Auth --> Core["Payments, ledger, risk, AgentPay"]
+    Core --> Mongo[("MongoDB Atlas — core")]
+    Mongo --> Outbox["Transactional outbox"]
+    Outbox --> Worker["Persistent Node worker"]
+    Worker -->|HMAC + stable operation ID| Provider["Mock provider"]
+    Provider --> ProviderDb[("MongoDB Atlas — provider")]
+    Worker --> Reconcile["Reconciliation"]
+    Reconcile --> Mongo
 ```
 
-### An important payment rule
+The API is a modular monolith. The worker and mock provider are separate processes because they have different availability and security boundaries, not because every domain needs a service. MongoDB is authoritative; Redis/BullMQ is intentionally absent until measured demand and an ADR justify it.
 
-A timeout is **not** a confirmed failure. If a provider processed the payment but the response was lost, Pratyaya must first check what happened to the **original provider operation**. Sending a fresh payment to another provider could cause a duplicate economic effect.
+### Payment safety model
 
 ```mermaid
 sequenceDiagram
-    participant M as Merchant / React
-    participant A as Pratyaya API
-    participant W as Durable worker
+    participant C as Client
+    participant A as API
+    participant D as MongoDB
+    participant W as Worker
     participant P as Mock provider
-    participant D as MongoDB ledger
-    M->>A: POST /payments + Idempotency-Key
-    A->>D: Atomically store payment + outbox
-    A-->>M: Accepted + stable payment reference
-    W->>P: Capture using stable operation ID
-    P->>P: Persist simulated capture
-    Note over P,W: Provider response is lost
-    W->>D: Record uncertain outcome
-    W->>P: Look up original operation ID
-    P-->>W: Capture confirmed
-    W->>D: Atomically finalize + post balanced journal
-    M->>A: GET /api/v1/payments/{id}
-    A->>D: Read committed payment state
-    D-->>A: Captured status + journal reference
-    A-->>M: Current status + timeline
+    C->>A: POST payment + Idempotency-Key
+    A->>D: Transaction: payment + idempotency + outbox
+    A-->>C: Stable payment ID
+    W->>D: Conditionally lease outbox/job
+    W->>P: Signed request + persisted operation ID
+    P->>P: Idempotent synthetic effect
+    alt response received
+        P-->>W: Confirmed result
+        W->>D: State change + balanced journal
+    else response lost
+        W->>D: Mark outcome UNKNOWN
+        W->>P: Query original operation ID
+        P-->>W: Authoritative outcome
+    end
 ```
 
-## Break a payment on purpose
+Money enters JSON as positive decimal strings in minor units, is converted to `BigInt`, and is persisted as BSON `Long`/Mongoose `BigInt`. Floating-point arithmetic is not used for financial amounts. A timeout is `UNKNOWN`, never an assumed failure, and retries retain the same provider operation identity.
 
-The **Reliability Lab** is meant to make failure visible. Instead of claiming that the system is reliable, the goal is to **test it and show the evidence**.
-
-<details>
-<summary><strong>Scenario A — I clicked Pay five times. Was I charged five times?</strong></summary>
-
-**Inject:** Repeated concurrent requests with the same idempotency key and payload.
-
-**Expected:** One logical payment; later requests receive the previous result or an in-progress response. Reusing that key for a different payload returns a conflict.
-
-**Evidence to inspect:** Request results, idempotency record, payment count, provider operation count, and related journal count.
-
-</details>
-
-<details>
-<summary><strong>Scenario B — The provider charged successfully, then disappeared.</strong></summary>
-
-**Inject:** The mock provider persists a successful capture, but its response never reaches the worker.
-
-**Expected:** The local operation remains uncertain, the worker queries the original operation ID, and a confirmed capture is recorded **once**. No blind rerouting.
-
-**Evidence to inspect:** Provider reference, retry attempts, reconciliation trace, and balanced journal.
-
-</details>
-
-<details>
-<summary><strong>Scenario C — A worker crashes in the middle of a refund.</strong></summary>
-
-**Inject:** Terminate a dedicated sandbox worker after its operation is dispatched.
-
-**Expected:** Its lease expires, another worker resumes from durable state, and no extra refund is created. Uncertain refunds keep their balance reservation until resolved.
-
-**Evidence to inspect:** Job ownership, lease history, provider operation ID, refund status, and ledger integrity report.
-
-</details>
-
-<details>
-<summary><strong>Scenario D — Every provider looks unhealthy.</strong></summary>
-
-**Inject:** Place the mock providers in simulated outage or circuit-open states.
-
-**Expected:** New unbound operations are safely delayed or rejected. Existing uncertain operations retain their original provider binding for reconciliation.
-
-**Evidence to inspect:** Provider health, routing decision, circuit state, and absence of unintended financial effects.
-
-</details>
-
-## The accounting idea, without the jargon
-
-When a fictional ₹1,000 payment is **confirmed captured**, the accounting model records the effect on both sides:
-
-| Account                      |      Debit |     Credit |
-| :--------------------------- | ---------: | ---------: |
-| Provider clearing (asset)    |     ₹1,000 |          — |
-| Merchant payable (liability) |          — |     ₹1,000 |
-| **Total**                    | **₹1,000** | **₹1,000** |
-
-A confirmed refund creates a corresponding reversing journal. Merely authorizing a payment does **not** mean the money has been captured.
-
-<details>
-<summary><strong>Why not just store a balance field?</strong></summary>
-
-Because a balance tells you _how much_ but not necessarily _why_. A journal tells you which economic event caused the change, which accounts moved, and whether the movement balanced. Derived balances can always be rebuilt from confirmed journals. MongoDB transactions, uniqueness constraints, and controlled corrections are used to protect that record.
-
-</details>
-
-## Technology stack
-
-| Part             | Tools                                                                              |
-| :--------------- | :--------------------------------------------------------------------------------- |
-| Client           | React, Vite, JavaScript, Tailwind CSS, TanStack Query                              |
-| API              | Node.js, Express, Zod, JWT, RBAC                                                   |
-| Data             | MongoDB Atlas, Mongoose, multi-document transactions                               |
-| Async processing | MongoDB transactional outbox, durable job leases, retries                          |
-| Payment network  | Independent Node.js mock providers and signed webhooks                             |
-| Testing          | Vitest, Supertest, Playwright; reproducible concurrency/fault tests                |
-| Delivery         | Docker for local reproducibility, GitHub Actions, Vercel + compatible Node hosting |
-
-### Repository layout
-
-The intended workspace layout is:
+## Repository
 
 ```text
-pratyaya/
-├── apps/
-│   ├── web/             # React application
-│   ├── api/             # Express business API
-│   ├── worker/          # Background jobs and reconciliation
-│   └── mock-provider/   # External payment simulation
-├── packages/
-│   └── shared/          # Shared constants / validation
-├── docs/                # Design notes, API docs, progress
-├── tests/               # Integration and failure scenarios
-├── .github/workflows/    # CI
-└── package.json         # npm workspaces
+apps/
+  api/             Express API and domain modules
+  worker/          durable outbox/job consumer
+  mock-provider/   independent synthetic provider
+  web/             React/Vite frontend
+packages/shared/   Zod contracts, constants, money helpers
+api/               Vercel same-origin API proxy
+docs/              architecture, security, testing, deployment, ADRs
+scripts/           deployment validation and hosted smoke checks
+render.yaml        API/provider/worker Render Blueprint
+vercel.json        frontend and proxy configuration
 ```
 
-The worker may share a backend runtime in smaller deployments; consult the actual repository before deploying separate services.
+## Run locally
 
-## Run it locally
+Prerequisites:
 
-**Prerequisites:** A supported Node.js LTS release, npm, and a MongoDB Atlas connection (or a local MongoDB replica set for transaction testing).
+- Node.js 24 and npm 11
+- two MongoDB Atlas database users/URIs, each on a replica-set deployment that supports transactions
+- Atlas network access restricted to your development/deployment egress addresses
+- Docker only if using the Compose workflow
 
 ```bash
-# Clone your own Pratyaya repository, then:
-cd pratyaya
-npm install
-
-# Inspect available workspace scripts before starting services:
-npm run
+git clone https://github.com/alive7z/Pratyaya.git
+cd Pratyaya
+npm ci
+cp .env.example .env
 ```
 
-Copy the project's `.env.example` file(s) to local, untracked `.env` file(s), then configure the required variables. Environment variable names should match the actual implementation. Typical configuration includes:
-
-```dotenv
-MONGODB_URI=your_mongodb_atlas_connection_string
-JWT_ACCESS_SECRET=generate_a_strong_secret_locally
-JWT_REFRESH_SECRET=generate_a_different_strong_secret
-MOCK_PROVIDER_URL=http://localhost:4100
-MOCK_PROVIDER_WEBHOOK_SECRET=generate_another_strong_secret
-APP_ORIGIN=http://localhost:5173
-```
-
-> [!NOTE]
-> MongoDB transactions require a replica set. MongoDB Atlas provides this in supported deployments. Keep the Atlas connection string and all signing secrets **server-side**; never place them in Vite client environment variables.
-
-Run the development scripts exposed in your `package.json`. The intended npm-workspace setup includes the API, React app, worker, and mock provider. For tests and builds, these commands work when corresponding workspace scripts have been configured:
+Set the two Atlas URIs and replace all development signing secrets in the untracked `.env`. Never use a `VITE_` variable for a secret.
 
 ```bash
-npm run test --workspaces --if-present
-npm run build --workspaces --if-present
+npm run db:check
+npm run db:migrate:provider
+npm run seed:demo
+npm run dev
 ```
 
-For exact endpoints and startup commands, use the repository's OpenAPI specification and `package.json` scripts rather than assuming example URLs are the deployed API.
+Local endpoints:
 
-<details>
-<summary><strong>Example: what does an idempotent API request look like?</strong></summary>
+| Service       | URL                                  |
+| ------------- | ------------------------------------ |
+| React         | `http://localhost:5173`              |
+| API           | `http://localhost:4000/api/v1`       |
+| OpenAPI UI    | `http://localhost:4000/api-docs`     |
+| Mock provider | `http://localhost:4100`              |
+| Worker health | `http://localhost:4200/health/ready` |
 
-Illustrative request contract (adjust local host/port and authentication to the running API):
+Docker uses the same Atlas-backed `.env`:
 
-```http
-POST /api/v1/payments HTTP/1.1
-Authorization: Bearer YOUR_SANDBOX_ACCESS_TOKEN
-Idempotency-Key: demo-payment-001
-Content-Type: application/json
-
-{
-  "amountMinor": 125000,
-  "currency": "INR",
-  "description": "Synthetic checkout payment"
-}
+```bash
+docker compose --env-file .env up --build
 ```
 
-Retrying the **same logical request** should reuse the same key. A new intended payment gets a new key. A conflicting payload with an existing key must not create another payment.
+## Verification
 
-</details>
+```bash
+npm run format:check
+npm run lint
+npm test
+npm run build
+npm run db:check
+npm run test:integration
+npm run deploy:check
+```
 
-## Security first, even in a sandbox
+Unit tests do not require Atlas. Database and integration commands do and must target synthetic test databases. See [testing](docs/testing.md) and [verified evidence](RESUME_EVIDENCE.md); neither this README nor CI treats skipped Atlas jobs as a passing integration run.
 
-- **Synthetic data only.** No real card numbers, CVV, banking credentials, or money movement.
-- **Tenant boundaries matter.** Merchant identity and permissions must be checked on the server.
-- **AI cannot authorize payments.** AgentPay suggestions require deterministic policies and explicit human approval.
-- **Webhooks are untrusted until verified.** Validate signatures, timestamps, and event identities.
-- **Failures should be explainable.** Keep operation references, journal links, and redacted audit records.
-- **Chaos tools belong in isolated demo environments.** No unrestricted fault injection against live systems.
-- **No compliance claims.** The project is not certified or represented as production-ready financial infrastructure.
+## Recruiter demo walkthrough
 
-## Engineering evidence, not marketing numbers
+1. Open `/login` and choose **Explore as Merchant**. Create a fictional payment and inspect its state and timeline.
+2. Retry the same logical request with the same idempotency key; show that it maps to one payment. Change the payload with that key; show the conflict.
+3. Inspect the ledger journal and demonstrate equal debit and credit totals for one currency.
+4. Choose **Explore as Developer**. Open provider health, webhooks, and the Reliability Lab; inject a sandbox-only timeout and explain why the outcome is uncertain rather than failed.
+5. Choose **Explore as Risk Analyst** to review risk decisions, then **Explore as Admin** for reconciliation and integrity views.
+6. Open AgentPay: a proposal may be drafted, but execution requires a separate authenticated approval and a final server-side policy check.
 
-This project is designed to produce reproducible evidence—not invented metrics. Useful experiments include:
+The automated smoke command checks all four role sessions, `/auth/me`, each role dashboard, logout/CSRF, frontend HTML, and service readiness:
 
-| Test target                      | What to verify                                        |
-| :------------------------------- | :---------------------------------------------------- |
-| 100 same-key concurrent requests | One logical payment and no duplicate economic effect  |
-| Timeout after provider success   | Recovery by original provider operation ID            |
-| Worker crash during execution    | Durable job recovery without duplicate capture/refund |
-| Duplicate webhook delivery       | One authorized financial posting                      |
-| Partial refund race              | Total refunds never exceed captured value             |
-| Ledger integrity scan            | Every posted journal balances for its currency        |
+```bash
+PRATYAYA_WEB_URL=https://your-vercel-site.example \
+PRATYAYA_API_URL=https://your-render-api.example \
+PRATYAYA_PROVIDER_URL=https://your-render-provider.example \
+npm run smoke:deployment
+```
 
-**These are validation targets, not published test results.** Add actual commands, dates, sample sizes, and observed results to `docs/PROGRESS.md` or `docs/TEST_REPORT.md` after running them.
+## Deployment
 
-## Project direction
+The prepared topology is:
 
-Pratyaya is being developed in milestones: identity and sandbox access → payment engine → ledger → mock providers and recovery → adaptive routing → reliability experiments → explainable risk → AgentPay → frontend polish → test/CI hardening → deployment.
+- Vercel: static React/Vite site and a same-origin serverless proxy; `PRATYAYA_API_ORIGIN` stays server-side.
+- Render: one web service for the API, one web service for the mock provider, and one continuously running background worker.
+- MongoDB Atlas: separate least-privilege core and provider users/databases; separate clusters/projects are recommended for stronger isolation.
 
-The architecture describes intended capabilities. **The current source code and verified progress report determine what is actually available.** Avoid presenting a design goal as a shipped feature.
+The Render worker cannot be replaced by a request-driven serverless function because durable leases and reconciliation require continuous polling. The Blueprint uses three paid `0.5c-512mb` instances. Current provider pricing and operational caveats are recorded with source links in [docs/deployment.md](docs/deployment.md).
 
-<details>
-<summary><strong>FAQ — Is Pratyaya a real payment gateway?</strong></summary>
+No public deployment URL is claimed in this repository. Deployment is complete only after `npm run smoke:deployment` passes against actual HTTPS URLs.
 
-No. It's a learning and demonstration environment for payment-system engineering. Every payment and financial record is fictional.
+## Security boundaries
 
-</details>
+- Secrets are environment-only and redacted from logs/system endpoints.
+- The browser receives no Atlas URI, JWT signing key, or provider HMAC secret.
+- Hosted cookies are `Secure`, `HttpOnly`, and protected by CSRF validation; HTTPS and explicit CORS origins are required.
+- Provider requests use timestamped HMAC-SHA256 signatures and timing-safe comparison.
+- Role checks and merchant filters are server-side. UI route guards are convenience, not authorization.
+- Chaos endpoints are synthetic sandbox/admin tools and must not be exposed in a public production environment.
+- Never submit PAN, CVV, bank credentials, personal data, or real invoices.
 
-<details>
-<summary><strong>FAQ — Why MongoDB instead of a relational database?</strong></summary>
+See [the threat model](docs/threat-model.md) and [financial invariants](docs/financial-invariants.md).
 
-MongoDB Atlas simplifies managed deployment for this project while supporting multi-document transactions. It does not automatically make financial operations safe; indexes, transactional boundaries, immutable journal rules, and reconciliation still have to be designed and tested carefully.
+## Current limitations
 
-</details>
+- No public deployment has been performed or verified from this workspace; account ownership, billing, DNS, and provider dashboards require the repository owner.
+- The supplied Atlas development configuration currently resolves both process URIs to a database named `test`; production must use separate least-privilege database users and distinct database names, preferably isolated clusters.
+- Provider HTTP calls currently occur inside orchestration transaction callbacks. This works in the synthetic test flow but can extend MongoDB transaction duration during provider latency; splitting dispatch and completion into separate transaction phases is a production-hardening item.
+- The UI test suite is component/API-mock based. There is no Playwright browser suite or checked-in screenshot set, so screenshots are intentionally not fabricated here.
+- Performance/load figures are not claimed. Test durations are verification timings, not service latency benchmarks.
 
-<details>
-<summary><strong>FAQ — Why not just retry a failed payment?</strong></summary>
+## Documentation
 
-Because "request timed out" and "payment failed" are not the same thing. Retrying with a new operation identity can repeat an effect the provider has already committed. Pratyaya is designed to preserve operation identity and reconcile uncertain results first.
+- [Architecture](PAYCORE_ARCHITECTURE.md)
+- [Deployment and costs](docs/deployment.md)
+- [OpenAPI](docs/openapi.yaml)
+- [Testing](docs/testing.md)
+- [Progress](docs/PROGRESS.md)
+- [Verified resume evidence](RESUME_EVIDENCE.md)
 
-</details>
-
----
-
-<div align="center">
-
-### Built to understand the hard parts of payments.
-
-**Pratyaya** · _Trust in Every Transaction._
-
-An independent full-stack fintech engineering project by [@alive7z](https://github.com/alive7z).
-
-</div>
+License and support terms have not been defined. Review the code and limitations before reuse.

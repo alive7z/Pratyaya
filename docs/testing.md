@@ -1,15 +1,36 @@
 # Testing and verification
 
-Run from the repository root:
+Run from the repository root with Node.js 24/npm 11:
 
 ```bash
-npm run verify
-npm run test:integration
-npm run seed:demo
+npm run format:check
+npm run lint
+npm test
+npm run build
+npm run deploy:check
 ```
 
-`npm run verify` formats-checks, lints, runs unit/component/API contract tests, and builds the Vite application. `npm run test:integration` requires the untracked Atlas `MONGODB_URI`, executes files serially because they share the default Mongoose connection, and verifies replica-set transactions, rollback, idempotency, 100-way capture contention, competing refunds, API authorization, demo isolation, and corruption detection.
+`npm test` runs API, mock-provider, React/jsdom, and shared-package suites. Integration files are deliberately skipped unless `RUN_INTEGRATION_TESTS=1` is set.
 
-The integration suite creates uniquely identified test records and removes them afterward. It also refreshes the deterministic synthetic demo data used by authenticated API tests. Never point the tests at a real-money or production customer database.
+The following require untracked Atlas credentials and synthetic test databases that support transactions:
 
-`npm run db:check` checks core API, mock-provider, and worker Atlas connectivity. It requires both `MONGODB_URI` and the independently scoped `PROVIDER_MONGODB_URI`; no credential is committed to Git.
+```bash
+npm run db:check
+npm run db:migrate:provider
+npm run test:integration
+```
+
+The provider migration removes only the known obsolete `providerOperationId_1` index after verifying its exact key, then creates current schema indexes. Do not point tests or migrations at customer/real-money data.
+
+After deployment:
+
+```bash
+PRATYAYA_WEB_URL=https://... \
+PRATYAYA_API_URL=https://... \
+PRATYAYA_PROVIDER_URL=https://... \
+npm run smoke:deployment
+```
+
+The hosted smoke verifies frontend delivery, API liveness/readiness, available roles, four role sessions, identity, role dashboards, CSRF logout, and optional provider/worker readiness. A passing local run is not evidence of a successful hosted deployment.
+
+Verified counts and dates belong in `RESUME_EVIDENCE.md` and `docs/PROGRESS.md`; performance claims require a separate reproducible benchmark.

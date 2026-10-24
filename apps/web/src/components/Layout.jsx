@@ -60,42 +60,42 @@ const navigation = [
     label: "Provider Monitor",
     icon: Server,
     available: true,
-    permissions: ["payments.read"],
+    permissions: ["system.health.read"],
   },
   {
     to: "/providers",
     label: "Providers",
     icon: BrainCircuit,
     available: true,
-    permissions: ["payments.read"],
+    permissions: ["system.health.read"],
   },
   {
     to: "/routing",
     label: "Routing Analytics",
     icon: GitBranch,
     available: true,
-    permissions: ["payments.read"],
+    permissions: ["reconciliation.read"],
   },
   {
     to: "/routing/policy",
     label: "Routing Policy",
     icon: BrainCircuit,
     available: true,
-    permissions: ["payments.read"],
+    permissions: ["system.health.read"],
   },
   {
     to: "/routing/circuit-breakers",
     label: "Circuit Breakers",
     icon: Zap,
     available: true,
-    permissions: ["payments.read"],
+    permissions: ["system.health.read"],
   },
   {
     to: "/routing/decisions",
     label: "Decision Explorer",
     icon: ListFilter,
     available: true,
-    permissions: ["payments.read"],
+    permissions: ["reconciliation.read"],
   },
   {
     to: "/risk",
@@ -123,7 +123,7 @@ const navigation = [
     label: "Reliability Lab",
     icon: FlaskConical,
     available: true,
-    permissions: ["payments.read"],
+    permissions: ["system.health.read"],
   },
   {
     to: "/webhooks",
@@ -144,7 +144,7 @@ const navigation = [
     label: "Chaos Lab",
     icon: Battery,
     available: true,
-    permissions: ["payments.read"],
+    permissions: ["system.health.read"],
   },
   {
     to: "/time-machine",
@@ -210,8 +210,12 @@ export default function Layout() {
     window.localStorage.setItem("pratyaya-theme", theme);
   }, [theme]);
 
-  // Keep all platform simulation modules accessible in the navigation bar so buttons do not disappear
-  const visibleNav = navigation;
+  const permissions = new Set(auth?.permissions ?? []);
+  const visibleNav = navigation.filter(
+    (item) =>
+      item.available &&
+      item.permissions.every((value) => permissions.has(value)),
+  );
 
   const roleLabel = ROLE_LABELS[auth?.membership?.role ?? ""] || "User";
 

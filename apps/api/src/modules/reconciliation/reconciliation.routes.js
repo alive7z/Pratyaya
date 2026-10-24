@@ -3,6 +3,7 @@ import { PERMISSIONS } from "@pratyaya/shared";
 import { z } from "zod";
 import { authenticate } from "../../middleware/authenticate.js";
 import { authorize } from "../../middleware/authorize.js";
+import { requireCsrf } from "../../middleware/csrf.js";
 import { validate } from "../../middleware/validate.js";
 import { sendData } from "../../lib/response.js";
 import {
@@ -72,6 +73,7 @@ export function createReconciliationRouter({ config }) {
     "/:paymentId/check",
     auth,
     authorize(PERMISSIONS.RECONCILIATION_READ),
+    requireCsrf,
     validate({
       params: z
         .object({ paymentId: z.string().regex(/^[0-9a-fA-F]{24}$/) })
@@ -93,7 +95,7 @@ export function createReconciliationRouter({ config }) {
   );
 
   router.get(
-    "/:recordId",
+    "/records/:recordId",
     auth,
     authorize(PERMISSIONS.RECONCILIATION_READ),
     validate({

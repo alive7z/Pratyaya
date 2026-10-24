@@ -21,7 +21,7 @@ export function ProviderMonitor() {
 
   const { data: providerHealth, isLoading: healthLoading } = useQuery({
     queryKey: ["provider-health"],
-    queryFn: () => apiClient.get("/api/v1/providers/health"),
+    queryFn: () => apiClient.get("/api/v1/routing/providers"),
     enabled: !!auth,
     refetchInterval: 30000,
   });
@@ -41,7 +41,8 @@ export function ProviderMonitor() {
   }
 
   const ops = providerOps?.data?.operations || [];
-  const health = providerHealth?.data;
+  const providers = providerHealth?.data ?? [];
+  const healthy = providers.length > 0 && providers.every((p) => p.enabled);
 
   const successCount = ops.filter((o) => o.status === "SUCCEEDED").length;
   const failedCount = ops.filter((o) => o.status === "DECLINED").length;
@@ -76,10 +77,10 @@ export function ProviderMonitor() {
         </div>
         <div className="flex items-center gap-2">
           <div
-            className={`w-3 h-3 rounded-full ${health?.status === "healthy" ? "bg-green-500" : "bg-red-500"}`}
+            className={`w-3 h-3 rounded-full ${healthy ? "bg-green-500" : "bg-yellow-500"}`}
           />
           <span className="text-sm font-medium">
-            {health?.status === "healthy" ? "Healthy" : "Degraded"}
+            {healthy ? "Available" : "Needs attention"}
           </span>
         </div>
       </div>
@@ -144,41 +145,31 @@ export function ProviderMonitor() {
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Provider Health Details</CardTitle>
+            <CardTitle>Configured providers</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-gray-600">Connection Status</span>
-                <div className="flex items-center gap-2">
-                  <div
-                    className={`w-3 h-3 rounded-full ${health?.checks?.database?.status === "up" ? "bg-green-500" : "bg-red-500"}`}
-                  />
-                  <span className="text-sm font-medium">
-                    {health?.checks?.database?.status === "up"
-                      ? "Connected"
-                      : "Disconnected"}
-                  </span>
+              {providers.map((provider) => (
+                <div
+                  key={provider.providerId}
+                  className="flex items-center justify-between"
+                >
+                  <div>
+                    <p className="font-medium">{provider.providerName}</p>
+                    <p className="text-xs text-gray-500">
+                      {provider.providerId}
+                    </p>
+                  </div>
+                  <Badge variant={provider.enabled ? "success" : "destructive"}>
+                    {provider.status}
+                  </Badge>
                 </div>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-gray-600">Database Latency</span>
-                <span className="font-medium">
-                  {health?.checks?.database?.latencyMs || 0}ms
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-gray-600">Uptime</span>
-                <span className="font-medium">
-                  {Math.floor(health?.uptimeSeconds / 60)} minutes
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-gray-600">Service Version</span>
-                <span className="font-medium font-mono text-sm">
-                  {health?.version}
-                </span>
-              </div>
+              ))}
+              {providers.length === 0 ? (
+                <p className="text-sm text-gray-500">
+                  No providers are configured.
+                </p>
+              ) : null}
             </div>
           </CardContent>
         </Card>

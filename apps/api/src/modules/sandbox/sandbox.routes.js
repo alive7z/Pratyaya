@@ -3,6 +3,7 @@ import { PERMISSIONS } from "@pratyaya/shared";
 import { z } from "zod";
 import { authenticate } from "../../middleware/authenticate.js";
 import { authorize } from "../../middleware/authorize.js";
+import { requireCsrf } from "../../middleware/csrf.js";
 import { validate } from "../../middleware/validate.js";
 import { sendData } from "../../lib/response.js";
 import {
@@ -141,6 +142,7 @@ export function createSandboxRouter({ config }) {
   router.post(
     "/faults",
     ...sandboxPermission,
+    requireCsrf,
     validate({ body: faultsSchema }),
     async (req, res, next) => {
       try {
@@ -168,13 +170,18 @@ export function createSandboxRouter({ config }) {
     }
   });
 
-  router.delete("/faults", ...sandboxPermission, async (req, res, next) => {
-    try {
-      sendData(req, res, await clearProviderFaults({ config }), 200);
-    } catch (error) {
-      next(error);
-    }
-  });
+  router.delete(
+    "/faults",
+    ...sandboxPermission,
+    requireCsrf,
+    async (req, res, next) => {
+      try {
+        sendData(req, res, await clearProviderFaults({ config }), 200);
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
 
   return router;
 }

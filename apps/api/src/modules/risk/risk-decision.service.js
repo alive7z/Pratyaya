@@ -136,6 +136,33 @@ async function getSummary({ auth }) {
   return { total, decisionCounts, levelCounts };
 }
 
+async function listAlerts({ auth, query }) {
+  const filter = { merchantId: auth.merchantId };
+  for (const field of ["severity", "status", "ruleCode"]) {
+    if (query[field]) filter[field] = query[field];
+  }
+  if (query.paymentId) filter.paymentId = query.paymentId;
+  if (query.from || query.to) {
+    filter.createdAt = {};
+    if (query.from) filter.createdAt.$gte = new Date(query.from);
+    if (query.to) filter.createdAt.$lte = new Date(query.to);
+  }
+
+  const items = await RiskAlert.find(filter)
+    .sort({ createdAt: -1, _id: -1 })
+    .limit(Math.min(query.limit ?? 50, 100))
+    .lean();
+
+  return {
+    items: items.map((alert) => ({
+      ...alert,
+      id: String(alert._id),
+      merchantId: String(alert.merchantId),
+      paymentId: alert.paymentId ? String(alert.paymentId) : null,
+    })),
+  };
+}
+
 async function overrideDecision({ auth, decisionId, decision, _reviewedBy }) {
   return runInTransaction(async (session) => {
     const existing = await RiskDecision.findOne({
@@ -199,6 +226,7 @@ export const riskDecisionService = {
   getDecision,
   listDecisions,
   getSummary,
+  listAlerts,
   overrideDecision,
   toDecisionDto,
 };

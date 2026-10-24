@@ -42,6 +42,8 @@ export function AuthProvider({ children }) {
   );
 }
 
+// Kept beside its provider so consumers share one context instance.
+// eslint-disable-next-line react-refresh/only-export-components
 export function useAuth() {
   const context = useContext(AuthContext);
   if (!context) {

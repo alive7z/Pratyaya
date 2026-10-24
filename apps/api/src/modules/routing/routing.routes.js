@@ -3,6 +3,7 @@ import { PERMISSIONS } from "@pratyaya/shared";
 import { z } from "zod";
 import { authenticate } from "../../middleware/authenticate.js";
 import { authorize } from "../../middleware/authorize.js";
+import { requireCsrf } from "../../middleware/csrf.js";
 import { validate } from "../../middleware/validate.js";
 import {
   getProviders,
@@ -108,6 +109,7 @@ export function createRoutingRouter({ config }) {
     "/policies/:policyId",
     auth,
     authorize(PERMISSIONS.SYSTEM_HEALTH_READ),
+    requireCsrf,
     validate({
       params: z.object({ policyId: z.string() }),
       body: z
@@ -151,6 +153,7 @@ export function createRoutingRouter({ config }) {
     "/circuit-breakers/:providerId/reset",
     auth,
     authorize(PERMISSIONS.SYSTEM_HEALTH_READ),
+    requireCsrf,
     validate({ params: z.object({ providerId: z.string() }) }),
     resetCircuitBreaker,
   );
@@ -159,6 +162,7 @@ export function createRoutingRouter({ config }) {
     "/simulate",
     auth,
     authorize(PERMISSIONS.DEVELOPER_DASHBOARD_READ),
+    requireCsrf,
     validate({
       body: z
         .object({

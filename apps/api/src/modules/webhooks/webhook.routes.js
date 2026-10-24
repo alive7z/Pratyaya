@@ -1,5 +1,9 @@
 import express from "express";
 import { z } from "zod";
+import { PERMISSIONS } from "@pratyaya/shared";
+import { authenticate } from "../../middleware/authenticate.js";
+import { authorize } from "../../middleware/authorize.js";
+import { requireCsrf } from "../../middleware/csrf.js";
 import { validate } from "../../middleware/validate.js";
 import {
   processProviderWebhook,
@@ -7,8 +11,9 @@ import {
   retryInboxEvent,
 } from "./webhook.service.js";
 
-export function createWebhookRouter({ _config }) {
+export function createWebhookRouter({ config }) {
   const router = express.Router();
+  const requireAuth = authenticate({ config });
 
   const inboxQuerySchema = z
     .object({
@@ -26,6 +31,7 @@ export function createWebhookRouter({ _config }) {
     try {
       const result = await processProviderWebhook({
         payload: req.body,
+        rawBody: req.rawBody,
         headers: req.headers,
         config: req.app.locals.config,
         logger: req.app.locals.logger,
@@ -42,50 +48,67 @@ export function createWebhookRouter({ _config }) {
     }
   });
 
-  router.get("/inbox", validate(inboxQuerySchema), async (req, res, next) => {
-    try {
-      const result = await getInboxEvents({
-        merchantId: req.auth.merchantId,
-        query: req.validated.query,
-      });
-      res.json({
-        data: {
-          events: result.events.map((e) => ({
-            id: String(e._id),
-            source: e.source,
-            providerEventId: e.providerEventId,
-            eventType: e.eventType,
-            paymentId: e.paymentId ? String(e.paymentId) : null,
-            refundId: e.refundId ? String(e.refundId) : null,
-            payload: e.payload,
-            signatureVerified: e.signatureVerified,
-            signatureError: e.signatureError,
-            receivedAt: e.receivedAt,
-            processedAt: e.processedAt,
-            processingStatus: e.processingStatus,
-            attemptCount: e.attemptCount,
-            lastError: e.lastError,
-          })),
-          count: result.count,
-        },
-        meta: { requestId: req.requestId },
-      });
-    } catch (error) {
-      next(error);
-    }
-  });
+  router.get(
+    "/inbox",
+    requireAuth,
+    authorize(PERMISSIONS.RECONCILIATION_READ),
+    validate({ query: inboxQuerySchema }),
+    async (req, res, next) => {
+      try {
+        const result = await getInboxEvents({
+          merchantId: req.auth.merchantId,
+          query: req.validated.query,
+        });
+        res.json({
+          data: {
+            events: result.events.map((e) => ({
+              id: String(e._id),
+              source: e.source,
+              providerEventId: e.providerEventId,
+              eventType: e.eventType,
+              paymentId: e.paymentId ? String(e.paymentId) : null,
+              refundId: e.refundId ? String(e.refundId) : null,
+              payload: e.payload,
+              signatureVerified: e.signatureVerified,
+              signatureError: e.signatureError,
+              receivedAt: e.receivedAt,
+              processedAt: e.processedAt,
+              processingStatus: e.processingStatus,
+              attemptCount: e.attemptCount,
+              lastError: e.lastError,
+            })),
+            count: result.count,
+          },
+          meta: { requestId: req.requestId },
+        });
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
 
-  router.post("/inbox/:eventId/retry", async (req, res, next) => {
-    try {
-      await retryInboxEvent({
-        inboxEventId: req.params.eventId,
-        merchantId: req.auth.merchantId,
-      });
-      res.json({ data: { retried: true }, meta: { requestId: req.requestId } });
-    } catch (error) {
-      next(error);
-    }
-  });
+  router.post(
+    "/inbox/:eventId/retry",
+    requireAuth,
+    authorize(PERMISSIONS.RECONCILIATION_READ),
+    requireCsrf,
+    async (req, res, next) => {
+      try {
+        await retryInboxEvent({
+          inboxEventId: req.params.eventId,
+          merchantId: req.auth.merchantId,
+          config: req.app.locals.config,
+          logger: req.app.locals.logger,
+        });
+        res.json({
+          data: { retried: true },
+          meta: { requestId: req.requestId },
+        });
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
 
   return router;
 }

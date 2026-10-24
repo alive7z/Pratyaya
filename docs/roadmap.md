@@ -1,12 +1,25 @@
 # Milestone roadmap
 
-- **M01 Foundation:** Mongoose lifecycle, health/system API, process foundations, React shell, tests, docs, CI.
-- **M02 Atlas, auth, and core correctness:** MongoDB Atlas-only persistence, auth/session cookies, CSRF, RBAC, demo sessions, role dashboards, audit logs, payment create/read, state machine, idempotency.
-- **M03 Payment API foundation:** idempotent create/cancel, payment events, versioned transitions, outbox foundation, concurrency tests.
-- **M04 Ledger engine:** immutable balanced journals, capture/refund fixtures, integrity guardian, merchant-scoped ledger APIs, Ledger Explorer, synthetic reconciliation diagnostics.
-- **M05 Provider workflow and recovery:** provider simulator operations, outbox leasing/dispatch, authorize/capture/refund, signed webhooks, UNKNOWN resolution, durable recovery, live reconciliation.
-- **M06 Product frontend:** payment, audit, reconciliation, and reliability workflows beyond the current dashboards and ledger explorer.
-- **M07 AgentPay:** proposal parsing, policies, human approval, execution revalidation, adversarial tests.
-- **M08 Observability and deployment:** tracing, metrics, dashboards, Vercel/Node hosting, smoke tests, honest benchmarks.
+M01–M11 produced the current foundation, identity/RBAC, payments, ledger, provider simulation, durable work, reconciliation, routing/risk, AgentPay, and React operations interface. Historical implementation notes remain in Git history; current truth is the source, tests, and `docs/PROGRESS.md`.
 
-Only one milestone is implemented at a time. A later milestone cannot begin while prerequisite verification fails.
+## M12 — deployment and portfolio readiness
+
+Implemented in the repository:
+
+- Vercel SPA/proxy configuration
+- Render API, provider, and persistent-worker Blueprint
+- production environment validation and secret-only configuration points
+- provider index migration
+- deployment config checks and four-role hosted smoke script
+- deployment/cost/limitation documentation
+- recruiter README and evidence-only resume document
+
+External completion gates:
+
+- provision distinct least-privilege Atlas databases/users
+- link Vercel and Render accounts and configure secrets
+- deploy all services, record immutable working HTTPS URLs, and run hosted smoke tests
+- perform a human browser/accessibility review and capture truthful screenshots
+- split provider network waits from MongoDB transaction callbacks before describing the system as production-hardened
+
+No later milestone is authorized by this document.

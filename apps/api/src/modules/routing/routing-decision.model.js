@@ -36,7 +36,6 @@ const routingDecisionSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Payment",
       required: true,
-      index: true,
     },
     operationType: {
       type: String,

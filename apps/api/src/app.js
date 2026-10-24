@@ -85,7 +85,14 @@ export function createApp({ database, config, logger = silentLogger }) {
       exposedHeaders: ["X-Request-ID", "RateLimit", "RateLimit-Policy"],
     }),
   );
-  app.use(express.json({ limit: config.requestBodyLimit }));
+  app.use(
+    express.json({
+      limit: config.requestBodyLimit,
+      verify(req, _res, buffer) {
+        req.rawBody = Buffer.from(buffer);
+      },
+    }),
+  );
 
   app.get("/", (req, res) => {
     sendData(req, res, {

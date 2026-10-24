@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { ProviderOperation } from "../src/modules/operations/provider-operation.model.js";
+import { migrateProviderOperationIndexes } from "../migrations/001-provider-operation-indexes.js";
 import { createProviderApp } from "../src/app.js";
 import { loadConfig } from "../src/config/env.js";
 import {
@@ -12,7 +13,15 @@ import {
 } from "../src/db/mongoose.js";
 
 const enabled = process.env.RUN_INTEGRATION_TESTS === "1";
-const logger = { info() {}, warn() {}, error() {} };
+const logger = {
+  info() {},
+  warn() {},
+  error(context, message) {
+    if (process.env.DEBUG_INTEGRATION_TESTS === "1") {
+      console.error(message, context);
+    }
+  },
+};
 
 describe.skipIf(!enabled)("Mock provider operations", () => {
   const merchantId = "merchant_test_123";
@@ -22,7 +31,7 @@ describe.skipIf(!enabled)("Mock provider operations", () => {
   beforeAll(async () => {
     config = loadConfig();
     await connectMongo(config.mongodb, logger);
-    await ProviderOperation.init();
+    await migrateProviderOperationIndexes(logger);
     app = createProviderApp({
       database: { ping: () => pingMongo() },
       config,
@@ -51,11 +60,16 @@ describe.skipIf(!enabled)("Mock provider operations", () => {
   }
 
   function signedPost(path, body) {
-    return request(app).post(path).set(authHeaders(body)).send(body);
+    return request(app)
+      .post(`/provider/${config.providers[0].providerId}${path}`)
+      .set(authHeaders(body))
+      .send(body);
   }
 
   function signedGet(path) {
-    return request(app).get(path).set(authHeaders());
+    return request(app)
+      .get(`/provider/${config.providers[0].providerId}${path}`)
+      .set(authHeaders());
   }
 
   function baseAuthRequest() {
@@ -72,9 +86,7 @@ describe.skipIf(!enabled)("Mock provider operations", () => {
 
   it("creates an authorization successfully", async () => {
     const body = baseAuthRequest();
-    const res = await signedPost("/provider/v1/authorizations", body).expect(
-      201,
-    );
+    const res = await signedPost("/v1/authorizations", body).expect(201);
 
     expect(res.body.data.operationId).toBeTruthy();
     expect(res.body.data.type).toBe("AUTHORIZATION");
@@ -87,11 +99,9 @@ describe.skipIf(!enabled)("Mock provider operations", () => {
 
   it("returns idempotent response for duplicate authorization with same payload", async () => {
     const body = baseAuthRequest();
-    await signedPost("/provider/v1/authorizations", body).expect(201);
+    await signedPost("/v1/authorizations", body).expect(201);
 
-    const res = await signedPost("/provider/v1/authorizations", body).expect(
-      200,
-    );
+    const res = await signedPost("/v1/authorizations", body).expect(200);
 
     expect(res.body.data.idempotent).toBe(true);
     expect(res.body.data.status).toBe("SUCCEEDED");
@@ -99,23 +109,21 @@ describe.skipIf(!enabled)("Mock provider operations", () => {
 
   it("rejects duplicate authorization with conflicting payload", async () => {
     const body = baseAuthRequest();
-    await signedPost("/provider/v1/authorizations", body).expect(201);
+    await signedPost("/v1/authorizations", body).expect(201);
 
     const conflictingBody = { ...body, amountMinor: "20000" };
-    const res = await signedPost(
-      "/provider/v1/authorizations",
-      conflictingBody,
-    ).expect(409);
+    const res = await signedPost("/v1/authorizations", conflictingBody).expect(
+      409,
+    );
 
     expect(res.body.error.code).toBe("IDEMPOTENCY_CONFLICT");
   });
 
   it("creates a capture successfully", async () => {
     const authBody = baseAuthRequest();
-    const authRes = await signedPost(
-      "/provider/v1/authorizations",
-      authBody,
-    ).expect(201);
+    const authRes = await signedPost("/v1/authorizations", authBody).expect(
+      201,
+    );
 
     const captureBody = {
       clientOperationId: `client-cap-${Date.now()}`,
@@ -126,9 +134,7 @@ describe.skipIf(!enabled)("Mock provider operations", () => {
       merchantId,
     };
 
-    const res = await signedPost("/provider/v1/captures", captureBody).expect(
-      201,
-    );
+    const res = await signedPost("/v1/captures", captureBody).expect(201);
 
     expect(res.body.data.operationId).toBeTruthy();
     expect(res.body.data.type).toBe("CAPTURE");
@@ -138,10 +144,9 @@ describe.skipIf(!enabled)("Mock provider operations", () => {
 
   it("creates a refund successfully", async () => {
     const authBody = baseAuthRequest();
-    const authRes = await signedPost(
-      "/provider/v1/authorizations",
-      authBody,
-    ).expect(201);
+    const authRes = await signedPost("/v1/authorizations", authBody).expect(
+      201,
+    );
 
     const captureBody = {
       clientOperationId: `client-cap-${Date.now()}`,
@@ -151,10 +156,9 @@ describe.skipIf(!enabled)("Mock provider operations", () => {
       idempotencyKey: `idem-cap-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`,
       merchantId,
     };
-    const captureRes = await signedPost(
-      "/provider/v1/captures",
-      captureBody,
-    ).expect(201);
+    const captureRes = await signedPost("/v1/captures", captureBody).expect(
+      201,
+    );
 
     const refundBody = {
       clientOperationId: `client-ref-${Date.now()}`,
@@ -166,9 +170,7 @@ describe.skipIf(!enabled)("Mock provider operations", () => {
       reason: "Customer request",
     };
 
-    const res = await signedPost("/provider/v1/refunds", refundBody).expect(
-      201,
-    );
+    const res = await signedPost("/v1/refunds", refundBody).expect(201);
 
     expect(res.body.data.operationId).toBeTruthy();
     expect(res.body.data.type).toBe("REFUND");
@@ -179,13 +181,10 @@ describe.skipIf(!enabled)("Mock provider operations", () => {
 
   it("gets an operation by ID", async () => {
     const body = baseAuthRequest();
-    const createRes = await signedPost(
-      "/provider/v1/authorizations",
-      body,
-    ).expect(201);
+    const createRes = await signedPost("/v1/authorizations", body).expect(201);
 
     const res = await signedGet(
-      `/provider/v1/operations/${createRes.body.data.operationId}`,
+      `/v1/operations/${createRes.body.data.operationId}`,
     ).expect(200);
 
     expect(res.body.data.operationId).toBe(createRes.body.data.operationId);
@@ -194,7 +193,7 @@ describe.skipIf(!enabled)("Mock provider operations", () => {
   });
 
   it("lists operations for a merchant", async () => {
-    const res = await signedGet("/provider/v1/operations")
+    const res = await signedGet("/v1/operations")
       .query({ limit: 10 })
       .expect(200);
 
@@ -203,9 +202,7 @@ describe.skipIf(!enabled)("Mock provider operations", () => {
   });
 
   it("returns 404 for non-existent operation", async () => {
-    const res = await signedGet(
-      "/provider/v1/operations/op_nonexistent123",
-    ).expect(404);
+    const res = await signedGet("/v1/operations/op_nonexistent123").expect(404);
 
     expect(res.body.error.code).toBe("OPERATION_NOT_FOUND");
   });

@@ -153,4 +153,25 @@ describe("Pratyaya API health endpoints", () => {
       .expect(404);
     expect(write.body.error.code).toBe("NOT_FOUND");
   });
+
+  it("protects refund reads and mutations at their public route shapes", async () => {
+    const { app } = harness();
+    const id = "507f1f77bcf86cd799439011";
+
+    const list = await request(app)
+      .get(`/api/v1/payments/${id}/refunds`)
+      .expect(401);
+    expect(list.body.error.code).toBe("UNAUTHENTICATED");
+
+    const create = await request(app)
+      .post(`/api/v1/payments/${id}/refunds`)
+      .send({ amountMinor: "100", currency: "INR" })
+      .expect(401);
+    expect(create.body.error.code).toBe("UNAUTHENTICATED");
+
+    const detail = await request(app)
+      .get(`/api/v1/payments/refunds/${id}`)
+      .expect(401);
+    expect(detail.body.error.code).toBe("UNAUTHENTICATED");
+  });
 });

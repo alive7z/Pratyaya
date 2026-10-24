@@ -31,7 +31,12 @@ tags:
   - name: Ledger
     description: Merchant-scoped immutable journal, balance, and integrity views
   - name: Reconciliation
-    description: Read-only synthetic reconciliation diagnostics
+    description: Synthetic reconciliation diagnostics and case review
+  - name: Risk
+  - name: Routing
+  - name: Webhooks
+  - name: Sandbox
+  - name: AgentPay
 paths:
   /health/live:
     get:
@@ -688,7 +693,7 @@ paths:
           schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
       responses:
         "200": { $ref: "#/components/responses/DataResponse" }
-  /reconciliation/{recordId}:
+  /reconciliation/records/{recordId}:
     get:
       tags: [Reconciliation]
       operationId: getReconciliationRecord
@@ -699,6 +704,320 @@ paths:
       responses:
         "200": { $ref: "#/components/responses/DataResponse" }
         "404": { $ref: "#/components/responses/NotFound" }
+  /payments/{paymentId}/attempts:
+    get:
+      tags: [Payments]
+      summary: List provider attempts for a payment
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/DataResponse" }
+  /payments/{paymentId}/capture:
+    post:
+      tags: [Payments]
+      summary: Request a synthetic capture
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+        - { $ref: "#/components/parameters/CsrfToken" }
+      responses:
+        "200": { $ref: "#/components/responses/DataResponse" }
+  /payments/{paymentId}/refunds:
+    get:
+      tags: [Payments]
+      summary: List refunds for a payment
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/DataResponse" }
+    post:
+      tags: [Payments]
+      summary: Request a refund
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+        - { $ref: "#/components/parameters/CsrfToken" }
+      responses:
+        "201": { $ref: "#/components/responses/DataResponse" }
+  /payments/refunds/{refundId}:
+    get:
+      tags: [Payments]
+      summary: Get a refund
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/DataResponse" }
+  /payments/refunds/{refundId}/process:
+    post:
+      tags: [Payments]
+      summary: Process a queued synthetic refund
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/DataResponse" }
+  /payments/refunds/{refundId}/confirm:
+    post:
+      tags: [Payments]
+      summary: Confirm a provider refund result
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/DataResponse" }
+  /payments/refunds/{refundId}/fail:
+    post:
+      tags: [Payments]
+      summary: Record a failed provider refund result
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/DataResponse" }
+  /reconciliation/summary:
+    get:
+      tags: [Reconciliation]
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/DataResponse" }
+  /reconciliation/{paymentId}/check:
+    post:
+      tags: [Reconciliation]
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/DataResponse" }
+  /reconciliation/cases:
+    get:
+      tags: [Reconciliation]
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/DataResponse" }
+  /reconciliation/cases/{caseId}:
+    get:
+      tags: [Reconciliation]
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/DataResponse" }
+  /risk/summary:
+    get:
+      tags: [Risk]
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/DataResponse" }
+  /risk/decisions:
+    get:
+      tags: [Risk]
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/DataResponse" }
+  /risk/decisions/{decisionId}:
+    get:
+      tags: [Risk]
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/DataResponse" }
+  /risk/decisions/{decisionId}/override:
+    post:
+      tags: [Risk]
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/DataResponse" }
+  /risk/evaluate:
+    post:
+      tags: [Risk]
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/DataResponse" }
+  /risk/rules:
+    get:
+      tags: [Risk]
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/DataResponse" }
+  /risk/alerts:
+    get:
+      tags: [Risk]
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/DataResponse" }
+  /routing/providers:
+    get:
+      tags: [Routing]
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/DataResponse" }
+  /routing/providers/{providerId}:
+    get:
+      tags: [Routing]
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/DataResponse" }
+  /routing/providers/{providerId}/health:
+    get:
+      tags: [Routing]
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/DataResponse" }
+  /routing/providers/{providerId}/metrics:
+    get:
+      tags: [Routing]
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/DataResponse" }
+  /routing/decisions:
+    get:
+      tags: [Routing]
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/DataResponse" }
+  /routing/decisions/{decisionId}:
+    get:
+      tags: [Routing]
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/DataResponse" }
+  /routing/payments/{paymentId}:
+    get:
+      tags: [Routing]
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/DataResponse" }
+  /routing/policies:
+    get:
+      tags: [Routing]
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/DataResponse" }
+  /routing/policies/{policyId}:
+    get:
+      tags: [Routing]
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/DataResponse" }
+    put:
+      tags: [Routing]
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/DataResponse" }
+  /routing/circuit-breakers:
+    get:
+      tags: [Routing]
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/DataResponse" }
+  /routing/circuit-breakers/{providerId}:
+    get:
+      tags: [Routing]
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/DataResponse" }
+  /routing/circuit-breakers/{providerId}/reset:
+    post:
+      tags: [Routing]
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/DataResponse" }
+  /routing/simulate:
+    post:
+      tags: [Routing]
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/DataResponse" }
+  /webhooks/provider:
+    post:
+      tags: [Webhooks]
+      summary: Receive a signed synthetic provider webhook
+      security: []
+      responses:
+        "202": { $ref: "#/components/responses/DataResponse" }
+  /webhooks/inbox:
+    get:
+      tags: [Webhooks]
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/DataResponse" }
+  /webhooks/inbox/{eventId}/retry:
+    post:
+      tags: [Webhooks]
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/DataResponse" }
+  /sandbox/jobs:
+    get:
+      tags: [Sandbox]
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/DataResponse" }
+  /sandbox/webhooks:
+    get:
+      tags: [Sandbox]
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/DataResponse" }
+  /sandbox/outbox:
+    get:
+      tags: [Sandbox]
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/DataResponse" }
+  /sandbox/provider-operations:
+    get:
+      tags: [Sandbox]
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/DataResponse" }
+  /sandbox/faults:
+    get:
+      tags: [Sandbox]
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/DataResponse" }
+    post:
+      tags: [Sandbox]
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/DataResponse" }
+    delete:
+      tags: [Sandbox]
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/DataResponse" }
+  /agentpay/policy:
+    get:
+      tags: [AgentPay]
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/DataResponse" }
+    post:
+      tags: [AgentPay]
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "201": { $ref: "#/components/responses/DataResponse" }
+    put:
+      tags: [AgentPay]
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/DataResponse" }
+  /agentpay/invoices:
+    get:
+      tags: [AgentPay]
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/DataResponse" }
+    post:
+      tags: [AgentPay]
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "201": { $ref: "#/components/responses/DataResponse" }
+  /agentpay/invoices/{proposalId}:
+    get:
+      tags: [AgentPay]
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/DataResponse" }
+  /agentpay/invoices/{proposalId}/decide:
+    post:
+      tags: [AgentPay]
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/DataResponse" }
+  /agentpay/invoices/{proposalId}/execute:
+    post:
+      tags: [AgentPay]
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/DataResponse" }
 components:
   securitySchemes:
     cookieAuth:
