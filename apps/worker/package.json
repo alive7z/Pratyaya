@@ -1,0 +1,19 @@
+{
+  "name": "@pratyaya/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Pratyaya background worker process",
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js",
+    "db:check": "node src/db/check.js"
+  },
+  "dependencies": {
+    "@pratyaya/shared": "*",
+    "dotenv": "^18.0.9",
+    "mongoose": "^9.11.4",
+    "pino": "^10.4.0",
+    "zod": "^4.6.7"
+  }
+}
