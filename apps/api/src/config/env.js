@@ -27,6 +27,7 @@ const optionalBooleanString = () =>
     );
 
 const DEV_JWT_SECRET = "dev-only-pratyaya-jwt-secret-change-me-0001";
+const DEV_PROVIDER_SECRET = "dev-only-mock-provider-secret-change-me";
 
 const envSchema = z.object({
   NODE_ENV: z
@@ -36,6 +37,7 @@ const envSchema = z.object({
     .enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"])
     .default("info"),
   API_PORT: z.coerce.number().int().min(1).max(65535).default(4000),
+  PORT: z.coerce.number().int().min(1).max(65535).optional(),
   CORS_ORIGINS: z
     .string()
     .default("http://localhost:5173")
@@ -66,6 +68,11 @@ const envSchema = z.object({
   MONGODB_CONNECT_TIMEOUT_MS: z.coerce.number().int().min(1000).default(10000),
   MONGODB_SOCKET_TIMEOUT_MS: z.coerce.number().int().min(1000).default(45000),
   MONGODB_AUTO_INDEX: booleanString("true"),
+  PROVIDER_BASE_URL: z
+    .string()
+    .url()
+    .default("http://127.0.0.1:4100/provider/alpha"),
+  MOCK_PROVIDER_HMAC_SECRET: z.string().min(32).default(DEV_PROVIDER_SECRET),
   AUTH_JWT_SECRET: z.string().min(32).default(DEV_JWT_SECRET),
   AUTH_ISSUER: z.string().default("pratyaya-api"),
   AUTH_AUDIENCE: z.string().default("pratyaya-web"),
@@ -120,6 +127,15 @@ export function parseConfig(environment) {
     );
   }
 
+  if (
+    env.NODE_ENV === "production" &&
+    env.MOCK_PROVIDER_HMAC_SECRET === DEV_PROVIDER_SECRET
+  ) {
+    throw new Error(
+      "Invalid environment configuration: MOCK_PROVIDER_HMAC_SECRET must be set to a unique secret in production",
+    );
+  }
+
   const secureCookies =
     env.COOKIE_SECURE === undefined
       ? env.NODE_ENV === "production"
@@ -128,12 +144,14 @@ export function parseConfig(environment) {
   return Object.freeze({
     nodeEnv: env.NODE_ENV,
     logLevel: env.LOG_LEVEL,
-    apiPort: env.API_PORT,
+    apiPort: env.PORT ?? env.API_PORT,
     corsOrigins: Object.freeze(env.CORS_ORIGINS),
     rateLimitWindowMs: env.RATE_LIMIT_WINDOW_MS,
     rateLimitMax: env.RATE_LIMIT_MAX,
     trustProxy: env.TRUST_PROXY,
     requestBodyLimit: env.REQUEST_BODY_LIMIT,
+    providerBaseUrl: env.PROVIDER_BASE_URL.replace(/\/$/, ""),
+    mockProviderHmacSecret: env.MOCK_PROVIDER_HMAC_SECRET,
     mongodb: Object.freeze({
       uri: env.MONGODB_URI,
       appName: "pratyaya-api",
