@@ -1,6 +1,5 @@
 import { sendData } from "../../lib/response.js";
 import { agentpayService } from "./agentpay.service.js";
-import { AppError } from "../../lib/errors.js";
 
 export async function createPolicy(req, res, next) {
   try {
