@@ -1,702 +1,603 @@
-import { useState, useCallback } from "react";
-import { useAuth } from "../../app/AuthContext.jsx";
-import { apiClient } from "../../lib/apiClient.js";
-import { formatMoney } from "../../lib/format.js";
-import { AuthGate } from "../../components/AuthGate.jsx";
-import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardContent,
-} from "../../components/ui/Card.jsx";
-import { Button } from "../../components/ui/Button.jsx";
-import { Input } from "../../components/ui/Input.jsx";
-import { Badge } from "../../components/ui/Badge.jsx";
+
+import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Bot,
   Inbox,
   Shield,
   FileText,
-  Clock,
-  CheckCircle,
-  XCircle,
+  CheckCircle2,
   Plus,
   RefreshCw,
+  ArrowLeft,
+  Eye,
 } from "lucide-react";
+import { useAuth } from "../../app/AuthContext.jsx";
+import { apiClient } from "../../lib/apiClient.js";
+import { formatMoney } from "../../lib/format.js";
+import { AuthGate } from "../../components/AuthGate.jsx";
+import { Card, CardHeader, CardTitle, CardContent } from "../../components/ui/Card.jsx";
+import { Button } from "../../components/ui/Button.jsx";
+import { Input } from "../../components/ui/Input.jsx";
+import { Badge } from "../../components/ui/Badge.jsx";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "../../components/ui/Dialog.jsx";
 
 const STATUS_BADGE = {
-  PENDING_EXTRACTION: "default",
-  EXTRACTED: "default",
+  PENDING_EXTRACTION: "secondary",
+  EXTRACTED: "info",
   POLICY_CHECK_FAILED: "destructive",
   RISK_CHECK_FAILED: "destructive",
-  AWAITING_APPROVAL: "default",
+  AWAITING_APPROVAL: "warning",
   APPROVED: "success",
   REJECTED: "destructive",
   EXECUTED: "success",
-  EXPIRED: "default",
+  EXPIRED: "secondary",
 };
+
+function getPayload(response) {
+  return response?.data?.data ?? response?.data ?? response;
+}
+
+function getInvoices(response) {
+  const data = getPayload(response);
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.items)) return data.items;
+  if (Array.isArray(data?.invoices)) return data.invoices;
+  return [];
+}
+
+function money(amount, currency) {
+  if (amount == null || !currency) return "—";
+  return formatMoney(String(amount), currency);
+}
+
+function date(value) {
+  if (!value) return "—";
+  const result = new Date(value);
+  return Number.isNaN(result.getTime()) ? "—" : result.toLocaleString();
+}
+
+function Stat({ title, value, icon: Icon }) {
+  return (
+    <Card>
+      <CardContent className="flex min-h-36 flex-col items-center justify-center gap-2 p-5 text-center">
+        <Icon className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+        <p className="text-sm text-slate-500 dark:text-slate-400">{title}</p>
+        <p className="text-3xl font-bold tabular-nums">{value}</p>
+      </CardContent>
+    </Card>
+  );
+}
+
+function Field({ label, children }) {
+  return (
+    <div>
+      <p className="text-xs text-slate-500 dark:text-slate-400">{label}</p>
+      <div className="mt-1 wrap-break-word text-sm font-medium">{children ?? "—"}</div>
+    </div>
+  );
+}
 
 export function AgentPay() {
   const { auth } = useAuth();
+  const queryClient = useQueryClient();
+
   const [view, setView] = useState("dashboard");
   const [selectedProposal, setSelectedProposal] = useState(null);
-  const [policy, setPolicy] = useState(null);
-  const [proposals, setProposals] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [success, setSuccess] = useState(null);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
 
-  const loadPolicy = useCallback(async () => {
-    try {
-      const data = await apiClient.agentpay.getPolicy();
-      setPolicy(data.data ?? data);
-    } catch {
-      setPolicy(null);
-    }
-  }, []);
+  const merchantId = auth?.merchantId ?? null;
 
-  const loadProposals = useCallback(async () => {
-    try {
-      const data = await apiClient.agentpay.listInvoices({ limit: 50 });
-      const items = data.data?.items || data.items || [];
-      setProposals(items);
-    } catch {
-      setProposals([]);
-    }
-  }, []);
+  const proposalsQuery = useQuery({
+    queryKey: ["agentpay-invoices", merchantId],
+    queryFn: () => apiClient.agentpay.listInvoices({ limit: 50 }),
+    enabled: Boolean(auth),
+    refetchInterval: 15000,
+  });
 
-  const handleSubmitInvoice = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    setError(null);
-    setSuccess(null);
+  const policyQuery = useQuery({
+    queryKey: ["agentpay-policy", merchantId],
+    queryFn: () => apiClient.agentpay.getPolicy(),
+    enabled: Boolean(auth),
+  });
 
-    const formData = new FormData(e.currentTarget);
-    const invoiceText = formData.get("invoiceText");
-    const idempotencyKey =
-      formData.get("idempotencyKey") || `agent-${Date.now()}`;
+  const proposals = getInvoices(proposalsQuery.data);
+  const policyPayload = getPayload(policyQuery.data);
+  const policy = policyPayload?.policy ?? policyPayload ?? null;
 
-    try {
-      await apiClient.agentpay.submitInvoice({
-        invoiceText,
-        idempotencyKey,
-      });
-      setSuccess("Invoice submitted successfully");
-      await loadProposals();
-    } catch (err) {
-      setError(err.message || "Failed to submit invoice");
-    } finally {
-      setLoading(false);
-    }
+  const refresh = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["agentpay-invoices", merchantId] }),
+      queryClient.invalidateQueries({ queryKey: ["agentpay-policy", merchantId] }),
+    ]);
   };
 
-  const handleDecide = async (decision) => {
-    if (!selectedProposal) return;
-    setLoading(true);
-    setError(null);
-
-    try {
-      await apiClient.agentpay.decideInvoice(selectedProposal.id, {
-        decision,
-        reason: decision === "REJECT" ? "Manual review rejection" : undefined,
-      });
-      setSuccess(`Proposal ${decision.toLowerCase()}d successfully`);
-      setSelectedProposal(null);
-      await loadProposals();
-    } catch (err) {
-      setError(err.message || `Failed to ${decision.toLowerCase()} proposal`);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleExecute = async () => {
-    if (!selectedProposal) return;
-    setLoading(true);
-    setError(null);
-
-    try {
-      await apiClient.agentpay.executeInvoice(selectedProposal.id);
-      setSuccess("Payment executed successfully");
-      setSelectedProposal(null);
-      await loadProposals();
-    } catch (err) {
-      setError(err.message || "Failed to execute payment");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleCreatePolicy = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    setError(null);
-
-    const formData = new FormData(e.currentTarget);
-    const policyData = {
-      isEnabled: formData.get("isEnabled") === "on",
-      requireHumanApproval: formData.get("requireHumanApproval") === "on",
-      allowedCurrencies: ["USD", "INR"],
-      maxInvoiceAgeDays: parseInt(formData.get("maxInvoiceAgeDays")) || 90,
-      spendingLimits: [
-        {
-          currency: "USD",
-          maxAmountMinor: formData.get("usdLimit") || "1000000",
-          period: "PER_INVOICE",
-        },
-        {
-          currency: "INR",
-          maxAmountMinor: formData.get("inrLimit") || "80000000",
-          period: "PER_INVOICE",
-        },
-      ],
-      approvedSuppliers: formData.get("approvedSuppliers")
-        ? formData
-            .get("approvedSuppliers")
-            .split(",")
-            .map((s) => s.trim())
-            .filter(Boolean)
-            .map((name) => ({ name, normalizedName: name.toLowerCase() }))
-        : [],
-      blockedSuppliers: [],
-    };
-
-    try {
-      if (policy) {
-        await apiClient.agentpay.updatePolicy(policyData);
-      } else {
-        await apiClient.agentpay.createPolicy(policyData);
+  const mutation = useMutation({
+    mutationFn: async ({ action, data, id }) => {
+      if (action === "submit") return apiClient.agentpay.submitInvoice(data);
+      if (action === "policy") {
+        return policy
+          ? apiClient.agentpay.updatePolicy(data)
+          : apiClient.agentpay.createPolicy(data);
       }
-      setSuccess("Policy saved successfully");
-      setView("dashboard");
-      await loadPolicy();
-      await loadProposals();
-    } catch (err) {
-      setError(err.message || "Failed to save policy");
-    } finally {
-      setLoading(false);
+      if (action === "approve" || action === "reject") {
+        return apiClient.agentpay.decideInvoice(id, {
+          decision: action === "approve" ? "APPROVE" : "REJECT",
+          reason: action === "reject" ? "Manual review rejection" : undefined,
+        });
+      }
+      if (action === "execute") return apiClient.agentpay.executeInvoice(id);
+      throw new Error("Unsupported action.");
+    },
+    onSuccess: async (_, variables) => {
+      setError("");
+      setSuccess({
+        submit: "Invoice submitted successfully.",
+        policy: "Policy saved successfully.",
+        approve: "Invoice approved successfully.",
+        reject: "Invoice rejected successfully.",
+        execute: "Payment execution request completed.",
+      }[variables.action]);
+
+      if (variables.action !== "submit") setSelectedProposal(null);
+
+      if (variables.action === "policy" || variables.action === "submit") {
+        setView("dashboard");
+      }
+
+      await refresh();
+    },
+    onError: (err) => setError(err?.message ?? "Operation failed."),
+  });
+
+  const submitInvoice = (event) => {
+    event.preventDefault();
+    setError("");
+    setSuccess("");
+
+    const data = new FormData(event.currentTarget);
+    const invoiceText = String(data.get("invoiceText") ?? "").trim();
+    const idempotencyKey = String(data.get("idempotencyKey") ?? "").trim();
+
+    if (!invoiceText || !idempotencyKey) {
+      setError("Invoice text and invoice ID are required.");
+      return;
     }
+
+    mutation.mutate({
+      action: "submit",
+      data: { invoiceText, idempotencyKey },
+    });
+  };
+
+  const savePolicy = (event) => {
+    event.preventDefault();
+    setError("");
+    setSuccess("");
+
+    const data = new FormData(event.currentTarget);
+    const suppliers = String(data.get("approvedSuppliers") ?? "")
+      .split(",")
+      .map((name) => name.trim())
+      .filter(Boolean);
+
+    const maxInvoiceAgeDays = Number(data.get("maxInvoiceAgeDays"));
+    const usdLimit = String(data.get("usdLimit") ?? "");
+    const inrLimit = String(data.get("inrLimit") ?? "");
+
+    if (
+      !Number.isInteger(maxInvoiceAgeDays) ||
+      maxInvoiceAgeDays < 1 ||
+      maxInvoiceAgeDays > 365 ||
+      !/^[1-9]\d*$/.test(usdLimit) ||
+      !/^[1-9]\d*$/.test(inrLimit)
+    ) {
+      setError("Enter valid invoice limits and an age between 1 and 365 days.");
+      return;
+    }
+
+    mutation.mutate({
+      action: "policy",
+      data: {
+        isEnabled: data.get("isEnabled") === "on",
+        requireHumanApproval: data.get("requireHumanApproval") === "on",
+        allowedCurrencies: ["USD", "INR"],
+        maxInvoiceAgeDays,
+        spendingLimits: [
+          { currency: "USD", maxAmountMinor: usdLimit, period: "PER_INVOICE" },
+          { currency: "INR", maxAmountMinor: inrLimit, period: "PER_INVOICE" },
+        ],
+        approvedSuppliers: suppliers.map((name) => ({
+          name,
+          normalizedName: name.toLowerCase(),
+        })),
+        blockedSuppliers: policy?.blockedSuppliers ?? [],
+      },
+    });
+  };
+
+  const changeView = (next) => {
+    setError("");
+    setSuccess("");
+    setView(next);
   };
 
   if (!auth) {
     return (
       <AuthGate
         title="AgentPay Autonomous Invoicing"
-        description="Configure agentic approval policies, simulate invoice extraction, and review authorization proposals."
+        description="Configure approval policies, submit synthetic invoices, and review payment proposals."
       />
     );
   }
 
-  if (view === "policy") {
-    return (
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">
-              AgentPay Policy
-            </h1>
-            <p className="text-gray-500 mt-1">
-              Configure spending limits, approved suppliers, and approval rules
-            </p>
-          </div>
-          <Button onClick={() => setView("dashboard")}>
-            <Inbox className="h-4 w-4 mr-2" /> Back
-          </Button>
+  return (
+    <div className="space-y-6">
+      <header className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-950 dark:text-white">
+            {view === "policy"
+              ? "AgentPay Policy"
+              : view === "submit"
+                ? "Submit Invoice"
+                : "AgentPay"}
+          </h1>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+            {view === "policy"
+              ? "Configure suppliers, limits, and approval requirements."
+              : view === "submit"
+                ? "Submit invoice text for extraction and policy evaluation."
+                : "AI-assisted invoice processing and human payment authorization."}
+          </p>
         </div>
 
+        {view === "dashboard" ? (
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => changeView("policy")}>
+              <Shield className="h-4 w-4" />
+              Policy
+            </Button>
+            <Button onClick={() => changeView("submit")}>
+              <Plus className="h-4 w-4" />
+              Submit Invoice
+            </Button>
+          </div>
+        ) : (
+          <Button variant="outline" onClick={() => changeView("dashboard")}>
+            <ArrowLeft className="h-4 w-4" />
+            Back
+          </Button>
+        )}
+      </header>
+
+      {error && (
+        <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
+          {error}
+        </div>
+      )}
+
+      {success && (
+        <div role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300">
+          {success}
+        </div>
+      )}
+
+      {view === "policy" && (
         <Card>
           <CardHeader>
             <CardTitle>AgentPay Configuration</CardTitle>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleCreatePolicy} className="space-y-6">
-              <div className="grid gap-4 md:grid-cols-2">
-                <div>
-                  <label className="block text-sm font-medium mb-2">
-                    Enable AgentPay
-                  </label>
-                  <input
-                    type="checkbox"
-                    name="isEnabled"
-                    defaultChecked={policy?.isEnabled ?? false}
-                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                  />
+            {policyQuery.isPending ? (
+              <p className="py-8 text-center text-sm text-slate-500">Loading policy...</p>
+            ) : policyQuery.isError ? (
+              <p role="alert" className="text-sm text-red-600">{policyQuery.error.message}</p>
+            ) : (
+              <form key={JSON.stringify(policy)} onSubmit={savePolicy} className="space-y-5">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {[
+                    ["isEnabled", "Enable AgentPay", policy?.isEnabled ?? false],
+                    ["requireHumanApproval", "Require Human Approval", policy?.requireHumanApproval ?? true],
+                  ].map(([name, label, checked]) => (
+                    <label key={name} className="flex items-center gap-3 rounded-lg border border-slate-200 p-3 text-sm dark:border-slate-800">
+                      <input
+                        type="checkbox"
+                        name={name}
+                        defaultChecked={checked}
+                        className="h-4 w-4 accent-blue-600"
+                      />
+                      {label}
+                    </label>
+                  ))}
                 </div>
-                <div>
-                  <label className="block text-sm font-medium mb-2">
-                    Require Human Approval
-                  </label>
-                  <input
-                    type="checkbox"
-                    name="requireHumanApproval"
-                    defaultChecked={policy?.requireHumanApproval ?? true}
-                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                  />
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <label htmlFor="invoice-age" className="text-sm font-medium">
+                      Max Invoice Age (days)
+                    </label>
+                    <Input
+                      id="invoice-age"
+                      name="maxInvoiceAgeDays"
+                      type="number"
+                      min="1"
+                      max="365"
+                      required
+                      defaultValue={policy?.maxInvoiceAgeDays ?? 90}
+                    />
+                  </div>
                 </div>
-              </div>
 
-              <div className="grid gap-4 md:grid-cols-2">
-                <div>
-                  <label className="block text-sm font-medium mb-2">
-                    Max Invoice Age (days)
-                  </label>
-                  <Input
-                    name="maxInvoiceAgeDays"
-                    type="number"
-                    defaultValue={policy?.maxInvoiceAgeDays ?? 90}
-                    min="1"
-                    max="365"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-2">
-                  Approved Suppliers (comma-separated)
-                </label>
-                <Input
-                  name="approvedSuppliers"
-                  placeholder="e.g., Acme Corp, Global Supplier Inc"
-                  defaultValue={
-                    policy?.approvedSuppliers?.map((s) => s.name).join(", ") ??
-                    ""
-                  }
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  Only invoices from approved suppliers will be processed
-                </p>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <div>
-                  <label className="block text-sm font-medium mb-2">
-                    USD Limit per Invoice (minor units)
+                <div className="space-y-2">
+                  <label htmlFor="suppliers" className="text-sm font-medium">
+                    Approved Suppliers
                   </label>
                   <Input
-                    name="usdLimit"
-                    type="number"
-                    defaultValue={String(
-                      policy?.spendingLimits?.find((l) => l.currency === "USD")
-                        ?.maxAmountMinor ?? 1000000,
-                    )}
+                    id="suppliers"
+                    name="approvedSuppliers"
+                    placeholder="Acme Corp, Global Supplier"
+                    defaultValue={policy?.approvedSuppliers?.map((s) => s.name).join(", ") ?? ""}
                   />
+                  <p className="text-xs text-slate-500">Separate supplier names with commas.</p>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium mb-2">
-                    INR Limit per Invoice (minor units)
-                  </label>
-                  <Input
-                    name="inrLimit"
-                    type="number"
-                    defaultValue={String(
-                      policy?.spendingLimits?.find((l) => l.currency === "INR")
-                        ?.maxAmountMinor ?? 80000000,
-                    )}
-                  />
-                </div>
-              </div>
 
-              <div className="pt-4">
-                <Button type="submit" disabled={loading}>
-                  {loading ? "Saving..." : "Save Policy"}
-                </Button>
-              </div>
-            </form>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  if (view === "submit") {
-    return (
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Submit Invoice</h1>
-            <p className="text-gray-500 mt-1">
-              Upload or paste invoice text for AI-assisted extraction and review
-            </p>
-          </div>
-          <Button onClick={() => setView("dashboard")}>
-            <Inbox className="h-4 w-4 mr-2" /> Back
-          </Button>
-        </div>
-
-        {error && (
-          <div className="rounded-lg border border-red-200 bg-red-50 p-4">
-            <p className="text-sm text-red-700">{error}</p>
-          </div>
-        )}
-        {success && (
-          <div className="rounded-lg border border-green-200 bg-green-50 p-4">
-            <p className="text-sm text-green-700">{success}</p>
-          </div>
-        )}
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Invoice Submission</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleSubmitInvoice} className="space-y-6">
-              <div>
-                <label className="block text-sm font-medium mb-2">
-                  Invoice ID (Idempotency Key)
-                </label>
-                <Input
-                  name="idempotencyKey"
-                  placeholder="e.g., INV-2024-001"
-                  required
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  Unique identifier to prevent duplicate submissions
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-2">
-                  Invoice Text
-                </label>
-                <textarea
-                  name="invoiceText"
-                  rows={12}
-                  className="w-full h-64 p-3 border border-gray-300 rounded-md bg-white font-mono text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-                  placeholder={`Example:
-From: Acme Corporation
-Invoice #: INV-2024-001
-Amount: $1,250.00 USD
-Date: 2024-01-15
-Due: 2024-02-15
-Payment Purpose: Office supplies and equipment`}
-                  required
-                />
-              </div>
-
-              <div className="pt-4">
-                <Button type="submit" disabled={loading}>
-                  {loading ? "Processing..." : "Extract & Submit"}
-                </Button>
-              </div>
-            </form>
-          </CardContent>
-        </Card>
-
-        <div className="grid gap-4 md:grid-cols-3">
-          <Card>
-            <CardContent className="pt-4">
-              <div className="flex items-center gap-2">
-                <Bot className="h-5 w-5 text-blue-600" />
-                <span className="text-sm font-medium text-gray-900">
-                  AI Extraction
-                </span>
-              </div>
-              <p className="text-xs text-gray-500 mt-2">
-                Automatically extracts supplier, amount, currency, and invoice
-                number using deterministic parsing with optional LLM assistance.
-              </p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-4">
-              <div className="flex items-center gap-2">
-                <Shield className="h-5 w-5 text-blue-600" />
-                <span className="text-sm font-medium text-gray-900">
-                  Policy Check
-                </span>
-              </div>
-              <p className="text-xs text-gray-500 mt-2">
-                Validates against spending limits, approved suppliers, and
-                duplicate detection before approval.
-              </p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-4">
-              <div className="flex items-center gap-2">
-                <CheckCircle className="h-5 w-5 text-blue-600" />
-                <span className="text-sm font-medium text-gray-900">
-                  Human Approval
-                </span>
-              </div>
-              <p className="text-xs text-gray-500 mt-2">
-                Requires explicit human approval before payment execution. AI
-                cannot bypass authorization.
-              </p>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-    );
-  }
-
-  // Dashboard view
-  return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">AgentPay</h1>
-          <p className="text-gray-500 mt-1">
-            AI-assisted invoice payment authorization
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => setView("policy")}>
-            <Shield className="h-4 w-4 mr-2" />
-            Policy
-          </Button>
-          <Button onClick={() => setView("submit")}>
-            <Plus className="h-4 w-4 mr-2" />
-            Submit Invoice
-          </Button>
-        </div>
-      </div>
-
-      {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-4">
-          <p className="text-sm text-red-700">{error}</p>
-        </div>
-      )}
-      {success && (
-        <div className="rounded-lg border border-green-200 bg-green-50 p-4">
-          <p className="text-sm text-green-700">{success}</p>
-        </div>
-      )}
-
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card>
-          <CardHeader>
-            <CardTitle>Total Proposals</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-gray-900">
-              {proposals.length}
-            </div>
-            <p className="text-xs text-gray-500 mt-1">Invoice proposals</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Pending Approval</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-yellow-600">
-              {proposals.filter((p) => p.status === "AWAITING_APPROVAL").length}
-            </div>
-            <p className="text-xs text-gray-500 mt-1">Awaiting human review</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Executed</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-green-600">
-              {proposals.filter((p) => p.status === "EXECUTED").length}
-            </div>
-            <p className="text-xs text-gray-500 mt-1">Payments executed</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle>Invoice Proposals</CardTitle>
-            <Button variant="outline" size="sm" onClick={loadProposals}>
-              <RefreshCw className="h-4 w-4" />
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {loading ? (
-            <div className="h-32 flex items-center justify-center">
-              <Clock className="h-6 w-6 animate-spin text-gray-400" />
-            </div>
-          ) : proposals.length === 0 ? (
-            <div className="text-center py-12">
-              <FileText className="h-12 w-12 mx-auto text-gray-400" />
-              <h3 className="mt-4 text-lg font-medium text-gray-900">
-                No proposals yet
-              </h3>
-              <p className="mt-2 text-sm text-gray-500">
-                Submit your first invoice to get started
-              </p>
-              <Button onClick={() => setView("submit")} className="mt-4">
-                <Plus className="h-4 w-4 mr-2" />
-                Submit Invoice
-              </Button>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b text-left text-gray-500">
-                    <th className="pb-3 font-medium">Invoice ID</th>
-                    <th className="pb-3 font-medium">Supplier</th>
-                    <th className="pb-3 font-medium">Amount</th>
-                    <th className="pb-3 font-medium">Status</th>
-                    <th className="pb-3 font-medium">Created</th>
-                    <th className="pb-3 font-medium">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y">
-                  {proposals.map((proposal) => (
-                    <tr key={proposal.id} className="hover:bg-gray-50">
-                      <td className="py-3 font-mono text-gray-600">
-                        {proposal.invoiceId}
-                      </td>
-                      <td className="py-3 text-gray-900">
-                        {proposal.extractedData?.supplierName ?? "—"}
-                      </td>
-                      <td className="py-3">
-                        {formatMoney(
-                          proposal.extractedData?.amountMinor,
-                          proposal.extractedData?.currency,
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {[
+                    ["USD", "usdLimit", "1000000"],
+                    ["INR", "inrLimit", "80000000"],
+                  ].map(([currency, name, fallback]) => (
+                    <div key={currency} className="space-y-2">
+                      <label htmlFor={name} className="text-sm font-medium">
+                        {currency} Limit (minor units)
+                      </label>
+                      <Input
+                        id={name}
+                        name={name}
+                        inputMode="numeric"
+                        required
+                        defaultValue={String(
+                          policy?.spendingLimits?.find((item) => item.currency === currency)
+                            ?.maxAmountMinor ?? fallback,
                         )}
-                      </td>
-                      <td className="py-3">
-                        <Badge
-                          variant={STATUS_BADGE[proposal.status] ?? "default"}
-                        >
-                          {proposal.status.replace(/_/g, " ")}
-                        </Badge>
-                      </td>
-                      <td className="py-3 text-gray-500">
-                        {new Date(proposal.createdAt).toLocaleDateString()}
-                      </td>
-                      <td className="py-3">
-                        <div className="flex items-center gap-2">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setSelectedProposal(proposal)}
-                          >
-                            <FileText className="h-4 w-4" />
-                          </Button>
-                          {proposal.status === "AWAITING_APPROVAL" && (
+                      />
+                    </div>
+                  ))}
+                </div>
+
+                <Button type="submit" disabled={mutation.isPending}>
+                  {mutation.isPending ? "Saving..." : "Save Policy"}
+                </Button>
+              </form>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {view === "submit" && (
+        <>
+          <Card>
+            <CardHeader>
+              <CardTitle>Invoice Submission</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={submitInvoice} className="space-y-5">
+                <div className="space-y-2">
+                  <label htmlFor="invoice-id" className="text-sm font-medium">
+                    Invoice ID / Idempotency Key
+                  </label>
+                  <Input
+                    id="invoice-id"
+                    name="idempotencyKey"
+                    required
+                    placeholder="INV-2026-001"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label htmlFor="invoice-text" className="text-sm font-medium">
+                    Invoice Text
+                  </label>
+                  <textarea
+                    id="invoice-text"
+                    name="invoiceText"
+                    rows={10}
+                    required
+                    placeholder={"Supplier: Acme Corporation\nInvoice #: INV-2026-001\nAmount: 1250.00 USD\nDate: 2026-10-24\nPayment Purpose: Office equipment"}
+                    className="w-full resize-y rounded-lg border border-slate-200 bg-white p-3 font-mono text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-slate-800 dark:bg-slate-950"
+                  />
+                </div>
+                <Button type="submit" disabled={mutation.isPending}>
+                  <Bot className="h-4 w-4" />
+                  {mutation.isPending ? "Processing..." : "Extract & Submit"}
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+
+          <div className="grid gap-4 sm:grid-cols-3">
+            {[
+              [Bot, "Invoice Extraction", "Extract supplier, currency, amount, and invoice information."],
+              [Shield, "Policy Validation", "Evaluate configured limits and supplier restrictions."],
+              [CheckCircle2, "Human Approval", "Review and authorize payments before execution when required."],
+            ].map(([Icon, title, description]) => (
+              <Card key={title}>
+                <CardContent className="space-y-2 pt-5">
+                  <Icon className="h-5 w-5 text-blue-600" />
+                  <p className="text-sm font-semibold">{title}</p>
+                  <p className="text-xs leading-relaxed text-slate-500">{description}</p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </>
+      )}
+
+      {view === "dashboard" && (
+        <>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <Stat title="Total Proposals" value={proposalsQuery.isPending ? "—" : proposals.length} icon={FileText} />
+            <Stat
+              title="Pending Approval"
+              value={proposalsQuery.isPending ? "—" : proposals.filter((p) => p.status === "AWAITING_APPROVAL").length}
+              icon={Inbox}
+            />
+            <Stat
+              title="Executed"
+              value={proposalsQuery.isPending ? "—" : proposals.filter((p) => p.status === "EXECUTED").length}
+              icon={CheckCircle2}
+            />
+          </div>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-3">
+              <CardTitle>Invoice Proposals</CardTitle>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={proposalsQuery.isFetching}
+                onClick={() => proposalsQuery.refetch()}
+              >
+                <RefreshCw className={`h-4 w-4 ${proposalsQuery.isFetching ? "animate-spin" : ""}`} />
+              </Button>
+            </CardHeader>
+            <CardContent>
+              {proposalsQuery.isPending ? (
+                <p className="py-10 text-center text-sm text-slate-500">Loading invoices...</p>
+              ) : proposalsQuery.isError ? (
+                <p role="alert" className="py-6 text-center text-sm text-red-600">
+                  {proposalsQuery.error.message}
+                </p>
+              ) : proposals.length === 0 ? (
+                <div className="py-12 text-center">
+                  <FileText className="mx-auto h-9 w-9 text-slate-400" />
+                  <p className="mt-3 text-sm font-medium">No invoice proposals yet</p>
+                  <Button className="mt-4" onClick={() => changeView("submit")}>
+                    <Plus className="h-4 w-4" />
+                    Submit Invoice
+                  </Button>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead className="border-b border-slate-200 text-xs text-slate-500 dark:border-slate-800">
+                      <tr>
+                        {["Invoice ID", "Supplier", "Amount", "Status", "Created", "Action"].map((heading) => (
+                          <th key={heading} className="whitespace-nowrap px-3 py-3 font-medium">
+                            {heading}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                      {proposals.map((proposal) => (
+                        <tr key={proposal.id} className="hover:bg-slate-50 dark:hover:bg-slate-900">
+                          <td className="px-3 py-3 font-mono text-xs">{proposal.invoiceId}</td>
+                          <td className="px-3 py-3">{proposal.extractedData?.supplierName ?? "—"}</td>
+                          <td className="whitespace-nowrap px-3 py-3">
+                            {money(proposal.extractedData?.amountMinor, proposal.extractedData?.currency)}
+                          </td>
+                          <td className="px-3 py-3">
+                            <Badge variant={STATUS_BADGE[proposal.status] ?? "secondary"}>
+                              {proposal.status?.replaceAll("_", " ") ?? "Unknown"}
+                            </Badge>
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-3 text-xs text-slate-500">
+                            {date(proposal.createdAt)}
+                          </td>
+                          <td className="px-3 py-3">
                             <Button
-                              variant="outline"
+                              variant="ghost"
                               size="sm"
+                              aria-label="View invoice"
                               onClick={() => {
+                                setError("");
                                 setSelectedProposal(proposal);
                               }}
                             >
-                              Review
+                              <Eye className="h-4 w-4" />
                             </Button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {selectedProposal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6 border-b flex items-center justify-between">
-              <h2 className="text-xl font-bold">Proposal Details</h2>
-              <button
-                onClick={() => setSelectedProposal(null)}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <XCircle className="h-6 w-6" />
-              </button>
-            </div>
-            <div className="p-6 space-y-6">
-              <div className="grid gap-4 md:grid-cols-2">
-                <div>
-                  <p className="text-xs text-gray-500 uppercase">Invoice ID</p>
-                  <p className="font-mono text-sm">
-                    {selectedProposal.invoiceId}
-                  </p>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-                <div>
-                  <p className="text-xs text-gray-500 uppercase">Status</p>
-                  <Badge
-                    variant={STATUS_BADGE[selectedProposal.status] ?? "default"}
-                  >
-                    {selectedProposal.status.replace(/_/g, " ")}
+              )}
+            </CardContent>
+          </Card>
+        </>
+      )}
+
+      <Dialog
+        open={Boolean(selectedProposal)}
+        onOpenChange={(open) => !open && !mutation.isPending && setSelectedProposal(null)}
+      >
+        <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Invoice Proposal</DialogTitle>
+            <DialogDescription>{selectedProposal?.invoiceId}</DialogDescription>
+          </DialogHeader>
+
+          {selectedProposal && (
+            <div className="space-y-5">
+              <div className="grid gap-4 rounded-lg bg-slate-50 p-4 dark:bg-slate-900 sm:grid-cols-2">
+                <Field label="Supplier">{selectedProposal.extractedData?.supplierName}</Field>
+                <Field label="Amount">
+                  {money(
+                    selectedProposal.extractedData?.amountMinor,
+                    selectedProposal.extractedData?.currency,
+                  )}
+                </Field>
+                <Field label="Invoice Number">{selectedProposal.extractedData?.invoiceNumber}</Field>
+                <Field label="Status">
+                  <Badge variant={STATUS_BADGE[selectedProposal.status] ?? "secondary"}>
+                    {selectedProposal.status?.replaceAll("_", " ")}
                   </Badge>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500 uppercase">Supplier</p>
-                  <p className="text-sm">
-                    {selectedProposal.extractedData?.supplierName ?? "—"}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500 uppercase">Amount</p>
-                  <p className="text-2xl font-bold text-gray-900">
-                    {formatMoney(
-                      selectedProposal.extractedData?.amountMinor,
-                      selectedProposal.extractedData?.currency,
-                    )}
-                  </p>
-                </div>
+                </Field>
+                <Field label="Payment Purpose">{selectedProposal.extractedData?.paymentPurpose}</Field>
+                <Field label="Confidence">
+                  {selectedProposal.confidence != null
+                    ? `${selectedProposal.confidence}%`
+                    : "—"}
+                </Field>
               </div>
 
-              <div className="border-t pt-6">
-                <h3 className="text-lg font-medium mb-4">Extracted Data</h3>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div>
-                    <p className="text-xs text-gray-500 uppercase">
-                      Invoice Number
-                    </p>
-                    <p className="text-sm">
-                      {selectedProposal.extractedData?.invoiceNumber ?? "—"}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500 uppercase">Currency</p>
-                    <p className="text-sm">
-                      {selectedProposal.extractedData?.currency ?? "—"}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500 uppercase">
-                      Confidence
-                    </p>
-                    <p className="text-sm">
-                      {selectedProposal.confidence}%{" "}
-                      {selectedProposal.extractionMethod}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500 uppercase">
-                      Payment Purpose
-                    </p>
-                    <p className="text-sm">
-                      {selectedProposal.extractedData?.paymentPurpose ?? "—"}
-                    </p>
-                  </div>
-                </div>
-              </div>
+              {error && (
+                <p role="alert" className="text-sm text-red-600">{error}</p>
+              )}
 
               {selectedProposal.status === "AWAITING_APPROVAL" && (
-                <div className="border-t pt-6">
-                  <h3 className="text-lg font-medium mb-4">Approval</h3>
-                  <p className="text-sm text-gray-600 mb-4">
-                    This proposal requires explicit human approval before
-                    payment execution. AI cannot bypass this authorization.
+                <div className="space-y-3 border-t border-slate-200 pt-4 dark:border-slate-800">
+                  <p className="text-sm text-slate-500">
+                    Review the extracted invoice information before authorizing payment.
                   </p>
-                  <div className="flex gap-3">
+                  <div className="flex flex-wrap gap-3">
                     <Button
-                      variant="default"
-                      onClick={() => handleDecide("APPROVE")}
-                      disabled={loading}
+                      disabled={mutation.isPending}
+                      onClick={() =>
+                        mutation.mutate({
+                          action: "approve",
+                          id: selectedProposal.id,
+                        })
+                      }
                     >
-                      Approve Payment
+                      Approve
                     </Button>
                     <Button
                       variant="destructive"
-                      onClick={() => handleDecide("REJECT")}
-                      disabled={loading}
+                      disabled={mutation.isPending}
+                      onClick={() =>
+                        mutation.mutate({
+                          action: "reject",
+                          id: selectedProposal.id,
+                        })
+                      }
                     >
                       Reject
                     </Button>
@@ -705,16 +606,18 @@ Payment Purpose: Office supplies and equipment`}
               )}
 
               {selectedProposal.status === "APPROVED" && (
-                <div className="border-t pt-6">
-                  <h3 className="text-lg font-medium mb-4">Execute Payment</h3>
-                  <p className="text-sm text-gray-600 mb-4">
-                    Proposal has been approved. Execute to create a payment
-                    through the idempotent payment engine.
+                <div className="space-y-3 border-t border-slate-200 pt-4 dark:border-slate-800">
+                  <p className="text-sm text-slate-500">
+                    This proposal is approved and ready for payment execution.
                   </p>
                   <Button
-                    variant="default"
-                    onClick={handleExecute}
-                    disabled={loading}
+                    disabled={mutation.isPending}
+                    onClick={() =>
+                      mutation.mutate({
+                        action: "execute",
+                        id: selectedProposal.id,
+                      })
+                    }
                   >
                     Execute Payment
                   </Button>
@@ -722,40 +625,26 @@ Payment Purpose: Office supplies and equipment`}
               )}
 
               {selectedProposal.approval && (
-                <div className="border-t pt-6">
-                  <h3 className="text-lg font-medium mb-4">Approval History</h3>
-                  <div className="space-y-2">
+                <div className="border-t border-slate-200 pt-4 dark:border-slate-800">
+                  <h3 className="mb-3 text-sm font-semibold">Approval History</h3>
+                  <div className="grid gap-3 sm:grid-cols-2">
                     {selectedProposal.approval.approvedAt && (
-                      <div className="flex items-center justify-between p-3 rounded-lg bg-green-50">
-                        <span className="text-sm text-green-700 font-medium">
-                          Approved
-                        </span>
-                        <span className="text-sm text-gray-600">
-                          {new Date(
-                            selectedProposal.approval.approvedAt,
-                          ).toLocaleString()}
-                        </span>
-                      </div>
+                      <Field label="Approved">
+                        {date(selectedProposal.approval.approvedAt)}
+                      </Field>
                     )}
                     {selectedProposal.approval.rejectedAt && (
-                      <div className="flex items-center justify-between p-3 rounded-lg bg-red-50">
-                        <span className="text-sm text-red-700 font-medium">
-                          Rejected
-                        </span>
-                        <span className="text-sm text-gray-600">
-                          {new Date(
-                            selectedProposal.approval.rejectedAt,
-                          ).toLocaleString()}
-                        </span>
-                      </div>
+                      <Field label="Rejected">
+                        {date(selectedProposal.approval.rejectedAt)}
+                      </Field>
                     )}
                   </div>
                 </div>
               )}
             </div>
-          </div>
-        </div>
-      )}
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

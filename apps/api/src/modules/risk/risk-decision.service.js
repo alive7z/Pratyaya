@@ -1,20 +1,97 @@
-import { RiskDecision } from "./risk-decision.model.js";
-import { RiskAlert } from "./risk-alert.model.js";
+
+import mongoose from "mongoose";
 import { RISK_DECISION_SOURCE } from "@pratyaya/shared";
 import { AppError } from "../../lib/errors.js";
 import { runInTransaction } from "../../lib/transaction.js";
+import { RiskDecision } from "./risk-decision.model.js";
+import { RiskAlert } from "./risk-alert.model.js";
+
+const MAX_LIMIT = 100;
+
+function toDecisionDto(decision) {
+  if (!decision) return null;
+
+  return {
+    id: String(decision._id),
+    merchantId: String(decision.merchantId),
+    paymentId: decision.paymentId ? String(decision.paymentId) : null,
+    decision: decision.decision,
+    score: decision.score,
+    level: decision.level,
+    ruleCodes: decision.ruleCodes ?? [],
+    explanation: decision.explanation,
+    source: decision.source,
+    reviewedBy: decision.reviewedBy
+      ? String(decision.reviewedBy)
+      : null,
+    reviewedAt: decision.reviewedAt ?? null,
+    createdAt: decision.createdAt,
+    updatedAt: decision.updatedAt,
+  };
+}
+
+function toAlertDto(alert) {
+  return {
+    ...alert,
+    id: String(alert._id),
+    merchantId: String(alert.merchantId),
+    paymentId: alert.paymentId ? String(alert.paymentId) : null,
+  };
+}
+
+function buildDateFilter(query = {}) {
+  if (!query.from && !query.to) return null;
+
+  const filter = {};
+
+  if (query.from) filter.$gte = new Date(query.from);
+  if (query.to) filter.$lte = new Date(query.to);
+
+  return filter;
+}
+
+function getLimit(value, fallback = 20) {
+  const parsed = Number(value ?? fallback);
+
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw new AppError(
+      400,
+      "INVALID_LIMIT",
+      "Limit must be a positive integer",
+    );
+  }
+
+  return Math.min(parsed, MAX_LIMIT);
+}
 
 async function evaluateAndRecord(
   merchantId,
   paymentId,
   paymentData,
-  _source = "AUTOMATED",
+  source = "AUTOMATED",
+  options = {},
 ) {
-  const engine = (await import("./risk-engine.service.js")).riskEngine;
-  const result = await engine.evaluatePayment(merchantId, paymentData);
+  if (!Object.values(RISK_DECISION_SOURCE).includes(source)) {
+    throw new AppError(
+      400,
+      "INVALID_RISK_DECISION_SOURCE",
+      "Invalid risk decision source",
+    );
+  }
 
-  return runInTransaction(async (session) => {
-    const decision = await RiskDecision.create(
+  const { riskEngine } = await import("./risk-engine.service.js");
+
+  const result = await riskEngine.evaluatePayment(
+    merchantId,
+    paymentData,
+  );
+
+  const ruleCodes = (result.triggeredRules ?? [])
+    .map((rule) => rule.ruleCode)
+    .filter(Boolean);
+
+  const persist = async (session) => {
+    const [record] = await RiskDecision.create(
       [
         {
           merchantId,
@@ -22,9 +99,9 @@ async function evaluateAndRecord(
           decision: result.decision,
           score: result.score,
           level: result.level,
-          ruleCodes: result.triggeredRules.map((r) => r.ruleCode),
+          ruleCodes,
           explanation: result.explanation,
-          source: RISK_DECISION_SOURCE.RULE_ENGINE,
+          source,
         },
       ],
       { session },
@@ -32,8 +109,7 @@ async function evaluateAndRecord(
 
     if (
       result.decision === "BLOCK" ||
-      result.level === "CRITICAL" ||
-      result.level === "HIGH"
+      ["HIGH", "CRITICAL"].includes(result.level)
     ) {
       await RiskAlert.create(
         [
@@ -41,23 +117,38 @@ async function evaluateAndRecord(
             merchantId,
             paymentId,
             reference:
-              paymentData.reference || `PAY-${paymentId.toString().slice(-8)}`,
+              paymentData.reference ??
+              `PAY-${String(paymentId).slice(-8)}`,
             score: result.score,
             severity: result.level,
             status: "OPEN",
-            ruleCode: result.triggeredRules.map((r) => r.ruleCode).join(","),
+            ruleCode: ruleCodes.join(","),
             summary: `Risk ${result.level}: ${result.explanation}`,
             explanation: result.explanation,
-            signals: result.triggeredRules.map((r) => r.ruleCode),
-            isDemo: paymentData.isDemo ?? false,
+            signals: ruleCodes,
+            isDemo: Boolean(paymentData.isDemo),
           },
         ],
         { session },
       );
     }
 
-    return decision;
-  });
+    return {
+      decision: record.decision,
+      score: record.score,
+      level: record.level,
+      triggeredRules: result.triggeredRules ?? [],
+      explanation: record.explanation,
+      source: record.source,
+      decisionId: String(record._id),
+    };
+  };
+
+  if (options.session) {
+    return persist(options.session);
+  }
+
+  return runInTransaction(persist);
 }
 
 async function getDecision({ auth, decisionId }) {
@@ -77,93 +168,137 @@ async function getDecision({ auth, decisionId }) {
   return toDecisionDto(decision);
 }
 
-async function listDecisions({ auth, query }) {
+async function listDecisions({ auth, query = {} }) {
   const filter = { merchantId: auth.merchantId };
+
   if (query.decision) filter.decision = query.decision;
   if (query.level) filter.level = query.level;
-  if (query.from || query.to) {
-    filter.createdAt = {};
-    if (query.from) filter.createdAt.$gte = new Date(query.from);
-    if (query.to) filter.createdAt.$lte = new Date(query.to);
+
+  const createdAt = buildDateFilter(query);
+  if (createdAt) filter.createdAt = createdAt;
+
+  const limit = getLimit(query.limit);
+
+  if (query.cursor) {
+    if (!mongoose.isValidObjectId(query.cursor)) {
+      throw new AppError(
+        400,
+        "INVALID_CURSOR",
+        "Invalid pagination cursor",
+      );
+    }
+
+    const cursorRecord = await RiskDecision.findOne({
+      _id: query.cursor,
+      merchantId: auth.merchantId,
+    })
+      .select("_id createdAt")
+      .lean();
+
+    if (!cursorRecord) {
+      throw new AppError(
+        400,
+        "INVALID_CURSOR",
+        "Pagination cursor was not found",
+      );
+    }
+
+    filter.$or = [
+      { createdAt: { $lt: cursorRecord.createdAt } },
+      {
+        createdAt: cursorRecord.createdAt,
+        _id: { $lt: cursorRecord._id },
+      },
+    ];
   }
 
-  const limit = Math.min(query.limit ?? 20, 100);
-  const cursor = query.cursor ? { _id: { $lt: query.cursor } } : {};
-  const filterWithCursor = { ...filter, ...cursor };
-
-  const decisions = await RiskDecision.find(filterWithCursor)
+  const decisions = await RiskDecision.find(filter)
     .sort({ createdAt: -1, _id: -1 })
     .limit(limit + 1)
     .lean();
 
   const hasMore = decisions.length > limit;
-  const items = hasMore ? decisions.slice(0, -1) : decisions;
-  const nextCursor = hasMore
-    ? String(decisions[decisions.length - 2]._id)
-    : null;
+  const items = decisions.slice(0, limit);
 
   return {
     items: items.map(toDecisionDto),
-    nextCursor,
+    nextCursor: hasMore
+      ? String(items[items.length - 1]._id)
+      : null,
     hasMore,
   };
 }
 
 async function getSummary({ auth }) {
   const merchantId = auth.merchantId;
+
   const [total, byDecision, byLevel] = await Promise.all([
     RiskDecision.countDocuments({ merchantId }),
     RiskDecision.aggregate([
       { $match: { merchantId } },
-      { $group: { _id: "$decision", count: { $sum: 1 } } },
+      {
+        $group: {
+          _id: "$decision",
+          count: { $sum: 1 },
+        },
+      },
     ]),
     RiskDecision.aggregate([
       { $match: { merchantId } },
-      { $group: { _id: "$level", count: { $sum: 1 } } },
+      {
+        $group: {
+          _id: "$level",
+          count: { $sum: 1 },
+        },
+      },
     ]),
   ]);
 
-  const decisionCounts = {};
-  for (const entry of byDecision) {
-    decisionCounts[entry._id] = entry.count;
-  }
+  const decisionCounts = Object.fromEntries(
+    byDecision.map(({ _id, count }) => [_id, count]),
+  );
 
-  const levelCounts = {};
-  for (const entry of byLevel) {
-    levelCounts[entry._id] = entry.count;
-  }
-
-  return { total, decisionCounts, levelCounts };
-}
-
-async function listAlerts({ auth, query }) {
-  const filter = { merchantId: auth.merchantId };
-  for (const field of ["severity", "status", "ruleCode"]) {
-    if (query[field]) filter[field] = query[field];
-  }
-  if (query.paymentId) filter.paymentId = query.paymentId;
-  if (query.from || query.to) {
-    filter.createdAt = {};
-    if (query.from) filter.createdAt.$gte = new Date(query.from);
-    if (query.to) filter.createdAt.$lte = new Date(query.to);
-  }
-
-  const items = await RiskAlert.find(filter)
-    .sort({ createdAt: -1, _id: -1 })
-    .limit(Math.min(query.limit ?? 50, 100))
-    .lean();
+  const levelCounts = Object.fromEntries(
+    byLevel.map(({ _id, count }) => [_id, count]),
+  );
 
   return {
-    items: items.map((alert) => ({
-      ...alert,
-      id: String(alert._id),
-      merchantId: String(alert.merchantId),
-      paymentId: alert.paymentId ? String(alert.paymentId) : null,
-    })),
+    total,
+    decisionCounts,
+    levelCounts,
   };
 }
 
-async function overrideDecision({ auth, decisionId, decision, _reviewedBy }) {
+async function listAlerts({ auth, query = {} }) {
+  const filter = { merchantId: auth.merchantId };
+
+  for (const field of ["severity", "status", "ruleCode"]) {
+    if (query[field]) filter[field] = query[field];
+  }
+
+  if (query.paymentId) {
+    filter.paymentId = query.paymentId;
+  }
+
+  const createdAt = buildDateFilter(query);
+  if (createdAt) filter.createdAt = createdAt;
+
+  const items = await RiskAlert.find(filter)
+    .sort({ createdAt: -1, _id: -1 })
+    .limit(getLimit(query.limit, 50))
+    .lean();
+
+  return {
+    items: items.map(toAlertDto),
+  };
+}
+
+async function overrideDecision({
+  auth,
+  decisionId,
+  decision,
+  reviewedBy,
+}) {
   return runInTransaction(async (session) => {
     const existing = await RiskDecision.findOne({
       _id: decisionId,
@@ -187,39 +322,40 @@ async function overrideDecision({ auth, decisionId, decision, _reviewedBy }) {
     }
 
     const updated = await RiskDecision.findOneAndUpdate(
-      { _id: decisionId, merchantId: auth.merchantId },
+      {
+        _id: decisionId,
+        merchantId: auth.merchantId,
+        source: { $ne: "MANUAL" },
+      },
       {
         $set: {
           decision,
           source: "MANUAL",
-          reviewedBy: auth.user?._id ?? auth.userId,
+          reviewedBy:
+            reviewedBy ??
+            auth.user?._id ??
+            auth.userId,
           reviewedAt: new Date(),
         },
       },
-      { returnDocument: "after", session },
+      {
+        session,
+        runValidators: true,
+        returnDocument: "after",
+      },
     ).lean();
+
+    if (!updated) {
+      throw new AppError(
+        409,
+        "RISK_DECISION_CONFLICT",
+        "Risk decision was modified concurrently",
+      );
+    }
 
     return toDecisionDto(updated);
   });
 }
-
-const toDecisionDto = (decision) => {
-  return {
-    id: String(decision._id),
-    merchantId: String(decision.merchantId),
-    paymentId: String(decision.paymentId),
-    decision: decision.decision,
-    score: decision.score,
-    level: decision.level,
-    ruleCodes: decision.ruleCodes,
-    explanation: decision.explanation,
-    source: decision.source,
-    reviewedBy: decision.reviewedBy ? String(decision.reviewedBy) : null,
-    reviewedAt: decision.reviewedAt,
-    createdAt: decision.createdAt,
-    updatedAt: decision.updatedAt,
-  };
-};
 
 export const riskDecisionService = {
   evaluateAndRecord,

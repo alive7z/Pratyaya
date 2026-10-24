@@ -1,3 +1,4 @@
+
 import mongoose from "mongoose";
 import {
   OPERATION_TYPES,
@@ -14,1034 +15,573 @@ import { OutboxEvent } from "../outbox-event.model.js";
 import { recordPaymentEvent, toPaymentDto } from "../payment.repository.js";
 import { createProviderClientService } from "./provider-client.service.js";
 
+const {
+  PENDING,
+  IN_FLIGHT,
+  SUCCEEDED,
+  FAILED,
+  UNKNOWN,
+} = OPERATION_STATES;
+
+const { AUTHORIZE, CAPTURE, REFUND } = OPERATION_TYPES;
+
+const now = () => new Date();
+
 function generateClientOperationId(prefix) {
   return `${prefix}-${new mongoose.Types.ObjectId().toString().slice(-16)}`;
 }
 
-function now() {
-  return new Date();
+function amount(value) {
+  return BigInt(value ?? 0);
+}
+
+function paymentFilter(paymentId, merchantId) {
+  return { _id: paymentId, merchantId };
+}
+
+function operationFilter(operationId, merchantId) {
+  return { _id: operationId, merchantId };
+}
+
+function ensurePositiveAmount(value, maximum) {
+  let requested;
+
+  try {
+    requested = BigInt(value);
+  } catch {
+    throw new AppError(
+      422,
+      "INVALID_AMOUNT",
+      "Amount must be a positive integer",
+    );
+  }
+
+  if (requested <= 0n || requested > maximum) {
+    throw new AppError(
+      422,
+      "INVALID_AMOUNT",
+      "Amount must be positive and within the available limit",
+    );
+  }
+
+  return requested;
+}
+
+async function addEvent(session, auth, payment, options) {
+  await recordPaymentEvent(
+    {
+      paymentId: payment._id,
+      merchantId: auth.merchantId,
+      actorRole: options.actorRole ?? auth.role ?? "system",
+      actorUserId: options.actorUserId ?? auth.user?._id ?? auth.userId,
+      isDemo: Boolean(auth.isDemo),
+      eventType: options.eventType,
+      fromStatus: options.fromStatus,
+      toStatus: options.toStatus,
+      summary: options.summary,
+      metadata: options.metadata ?? null,
+    },
+    session,
+  );
+}
+
+async function enqueueEvent(
+  session,
+  auth,
+  payment,
+  eventType,
+  payload,
+) {
+  await OutboxEvent.create(
+    [
+      {
+        merchantId: auth.merchantId,
+        aggregateType: "payment",
+        aggregateId: payment._id,
+        eventType,
+        payload: {
+          paymentId: String(payment._id),
+          merchantId: String(auth.merchantId),
+          ...payload,
+        },
+        state: OUTBOX_STATE.PENDING,
+        availableAt: now(),
+        isDemo: Boolean(auth.isDemo),
+      },
+    ],
+    { session },
+  );
+}
+
+async function updatePaymentStatus(
+  session,
+  payment,
+  merchantId,
+  nextStatus,
+  extra = {},
+) {
+  const updated = await Payment.findOneAndUpdate(
+    {
+      _id: payment._id,
+      merchantId,
+      status: payment.status,
+      version: payment.version,
+    },
+    {
+      $set: {
+        status: nextStatus,
+        ...extra,
+      },
+      $inc: { version: 1 },
+    },
+    {
+      session,
+      returnDocument: "after",
+    },
+  );
+
+  if (!updated) {
+    throw new AppError(
+      409,
+      "PAYMENT_CONCURRENCY_CONFLICT",
+      "Payment state changed while processing the operation",
+    );
+  }
+
+  return updated;
+}
+
+async function loadPayment(session, auth, paymentId) {
+  const payment = await Payment.findOne(
+    paymentFilter(paymentId, auth.merchantId),
+  ).session(session);
+
+  if (!payment) {
+    throw new AppError(
+      404,
+      "PAYMENT_NOT_FOUND",
+      "Payment not found",
+    );
+  }
+
+  return payment;
+}
+
+async function createProviderOperation(
+  session,
+  auth,
+  payment,
+  {
+    type,
+    clientOperationId,
+    amountMinor,
+    idempotencyKey,
+    requestPayload,
+  },
+) {
+  const [operation] = await ProviderOperation.create(
+    [
+      {
+        paymentId: payment._id,
+        merchantId: auth.merchantId,
+        type,
+        providerOperationId: clientOperationId,
+        clientOperationId,
+        amountMinor,
+        currency: payment.currency,
+        state: PENDING,
+        requestPayload,
+        idempotencyKey,
+        attemptCount: 0,
+        isDemo: Boolean(auth.isDemo),
+      },
+    ],
+    { session },
+  );
+
+  return operation;
+}
+
+async function getOperation(operationId, merchantId) {
+  const operation = await ProviderOperation.findOne(
+    operationFilter(operationId, merchantId),
+  ).lean();
+
+  if (!operation) {
+    throw new AppError(
+      404,
+      "PROVIDER_OPERATION_NOT_FOUND",
+      "Provider operation not found",
+    );
+  }
+
+  return operation;
+}
+
+async function claimOperation(operationId, merchantId) {
+  const claimed = await ProviderOperation.findOneAndUpdate(
+    {
+      ...operationFilter(operationId, merchantId),
+      state: PENDING,
+    },
+    {
+      $set: {
+        state: IN_FLIGHT,
+        lastAttemptAt: now(),
+      },
+      $inc: { attemptCount: 1 },
+    },
+    { returnDocument: "after" },
+  ).lean();
+
+  if (claimed) return claimed;
+
+  const existing = await getOperation(operationId, merchantId);
+
+  return {
+    ...existing,
+    alreadyProcessed: true,
+  };
+}
+
+async function markUnknown(operation, auth, reason) {
+  return runFinancialTransaction(async (session) => {
+    const current = await ProviderOperation.findOne(
+      operationFilter(operation._id, auth.merchantId),
+    ).session(session);
+
+    if (!current) {
+      throw new AppError(
+        404,
+        "PROVIDER_OPERATION_NOT_FOUND",
+        "Provider operation not found",
+      );
+    }
+
+    if (![PENDING, IN_FLIGHT].includes(current.state)) {
+      return {
+        providerOperation: current.toObject(),
+        alreadyProcessed: true,
+      };
+    }
+
+    const updatedOperation = await ProviderOperation.findOneAndUpdate(
+      {
+        _id: current._id,
+        merchantId: auth.merchantId,
+        state: current.state,
+      },
+      {
+        $set: {
+          state: UNKNOWN,
+          stateReason: reason,
+          processingCompletedAt: now(),
+        },
+      },
+      { session, returnDocument: "after" },
+    );
+
+    if (!updatedOperation) {
+      throw new AppError(
+        409,
+        "OPERATION_CONCURRENCY_CONFLICT",
+        "Provider operation changed while processing",
+      );
+    }
+
+    const payment = await loadPayment(
+      session,
+      auth,
+      current.paymentId,
+    );
+
+    if ([AUTHORIZE, CAPTURE].includes(current.type)) {
+      const expectedStatus =
+        current.type === AUTHORIZE
+          ? PAYMENT_STATUS.AUTHORIZING
+          : PAYMENT_STATUS.CAPTURING;
+
+      if (payment.status === expectedStatus) {
+        const updatedPayment = await updatePaymentStatus(
+          session,
+          payment,
+          auth.merchantId,
+          PAYMENT_STATUS.UNKNOWN,
+          { statusReason: reason },
+        );
+
+        await addEvent(session, auth, payment, {
+          eventType: "payment.unknown",
+          fromStatus: payment.status,
+          toStatus: PAYMENT_STATUS.UNKNOWN,
+          actorRole: "provider",
+          summary: reason,
+          metadata: {
+            providerOperationId: String(current._id),
+            operationType: current.type,
+          },
+        });
+
+        await enqueueEvent(
+          session,
+          auth,
+          payment,
+          OUTBOX_EVENT_TYPES.PAYMENT_RECONCILIATION_REQUESTED,
+          {
+            providerOperationId: String(current._id),
+            reason: `${current.type.toLowerCase()}_unknown`,
+          },
+        );
+
+        return {
+          providerOperation: updatedOperation.toObject(),
+          payment: toPaymentDto(updatedPayment),
+        };
+      }
+    }
+
+    await addEvent(session, auth, payment, {
+      eventType: "payment.refund.unknown",
+      fromStatus: payment.status,
+      toStatus: payment.status,
+      actorRole: "provider",
+      summary: reason,
+      metadata: {
+        providerOperationId: String(current._id),
+      },
+    });
+
+    await enqueueEvent(
+      session,
+      auth,
+      payment,
+      OUTBOX_EVENT_TYPES.PAYMENT_RECONCILIATION_REQUESTED,
+      {
+        providerOperationId: String(current._id),
+        reason: "refund_unknown",
+      },
+    );
+
+    return {
+      providerOperation: updatedOperation.toObject(),
+      payment: toPaymentDto(payment),
+    };
+  });
 }
 
 export async function createPaymentOrchestratorService(config, logger) {
   const providerClient = createProviderClientService(config, logger);
 
-  async function initiateAuthorization({ auth, paymentId, idempotencyKey }) {
-    return runFinancialTransaction(
-      async (session) => {
-        const payment = await Payment.findOne({
-          _id: paymentId,
-          merchantId: auth.merchantId,
-        }).session(session);
-        if (!payment) {
-          throw new AppError(404, "PAYMENT_NOT_FOUND", "Payment not found");
-        }
+  async function initiateAuthorization({
+    auth,
+    paymentId,
+    idempotencyKey,
+  }) {
+    return runFinancialTransaction(async (session) => {
+      const payment = await loadPayment(session, auth, paymentId);
 
-        if (payment.status !== PAYMENT_STATUS.QUEUED) {
-          throw new AppError(
-            409,
-            "INVALID_PAYMENT_STATE",
-            "Only QUEUED payments can be authorized",
-            { status: payment.status },
-          );
-        }
+      const existing = await ProviderOperation.findOne({
+        paymentId,
+        merchantId: auth.merchantId,
+        type: AUTHORIZE,
+        state: { $in: [PENDING, IN_FLIGHT, UNKNOWN] },
+      })
+        .session(session)
+        .lean();
 
-        const existingOp = await ProviderOperation.findOne({
-          paymentId,
-          type: OPERATION_TYPES.AUTHORIZE,
-          state: {
-            $in: [
-              OPERATION_STATES.PENDING,
-              OPERATION_STATES.IN_FLIGHT,
-              OPERATION_STATES.UNKNOWN,
-            ],
-          },
-        })
-          .session(session)
-          .lean();
-
-        if (existingOp) {
-          return {
-            providerOperation: existingOp,
-            payment: toPaymentDto(payment),
-            alreadyInProgress: true,
-          };
-        }
-
-        const clientOperationId = generateClientOperationId("auth");
-        const providerIdempotencyKey = `${idempotencyKey}-auth`;
-
-        const [providerOp] = await ProviderOperation.create(
-          [
-            {
-              paymentId,
-              merchantId: auth.merchantId,
-              type: OPERATION_TYPES.AUTHORIZE,
-              providerOperationId: clientOperationId,
-              clientOperationId,
-              amountMinor: payment.amountMinor,
-              currency: payment.currency,
-              state: OPERATION_STATES.PENDING,
-              requestPayload: {
-                clientOperationId,
-                amountMinor: payment.amountMinor.toString(),
-                currency: payment.currency,
-                paymentMethod: { type: "card", token: "tok_demo_123" },
-                description: payment.description,
-                metadata: payment.metadata,
-              },
-              idempotencyKey: providerIdempotencyKey,
-              isDemo: auth.isDemo,
-            },
-          ],
-          { session },
-        );
-
-        const updatedPayment = await Payment.findOneAndUpdate(
-          {
-            _id: payment._id,
-            merchantId: auth.merchantId,
-            status: PAYMENT_STATUS.QUEUED,
-            version: payment.version,
-          },
-          {
-            $set: { status: PAYMENT_STATUS.AUTHORIZING },
-            $inc: { version: 1 },
-          },
-          { returnDocument: "after", session },
-        );
-
-        if (!updatedPayment) {
-          throw new AppError(
-            409,
-            "PAYMENT_CONCURRENCY_CONFLICT",
-            "Payment state changed during authorization initiation",
-          );
-        }
-
-        await recordPaymentEvent(
-          {
-            paymentId: payment._id,
-            merchantId: auth.merchantId,
-            eventType: "payment.authorizing",
-            fromStatus: PAYMENT_STATUS.QUEUED,
-            toStatus: PAYMENT_STATUS.AUTHORIZING,
-            actorUserId: auth.user?._id ?? auth.userId,
-            actorRole: auth.role,
-            summary: "Authorization requested",
-            metadata: {
-              clientOperationId,
-              providerOperationId: providerOp._id,
-            },
-            isDemo: auth.isDemo,
-          },
-          session,
-        );
-
-        await OutboxEvent.create(
-          [
-            {
-              merchantId: auth.merchantId,
-              aggregateType: "payment",
-              aggregateId: payment._id,
-              eventType: OUTBOX_EVENT_TYPES.PAYMENT_AUTHORIZE_REQUESTED,
-              payload: {
-                paymentId: String(payment._id),
-                merchantId: String(auth.merchantId),
-                providerOperationId: String(providerOp._id),
-                clientOperationId,
-              },
-              state: OUTBOX_STATE.PENDING,
-              availableAt: now(),
-              isDemo: auth.isDemo,
-            },
-          ],
-          { session },
-        );
-
+      if (existing) {
         return {
-          providerOperation: providerOp,
-          payment: toPaymentDto(updatedPayment),
-          alreadyInProgress: false,
+          providerOperation: existing,
+          payment: toPaymentDto(payment),
+          alreadyInProgress: true,
         };
-      },
-      {
-        reconcile: async () => {
-          const op = await ProviderOperation.findOne({
-            paymentId,
-            type: OPERATION_TYPES.AUTHORIZE,
-          }).lean();
-          return op ? { providerOperation: op } : null;
-        },
-      },
-    );
-  }
+      }
 
-  async function processAuthorization({ providerOperationId, auth }) {
-    return runFinancialTransaction(
-      async (session) => {
-        const providerOp =
-          await ProviderOperation.findById(providerOperationId).session(
-            session,
-          );
-        if (!providerOp) {
-          throw new AppError(
-            404,
-            "PROVIDER_OPERATION_NOT_FOUND",
-            "Provider operation not found",
-          );
-        }
-
-        if (
-          providerOp.state !== OPERATION_STATES.PENDING &&
-          providerOp.state !== OPERATION_STATES.IN_FLIGHT
-        ) {
-          return { providerOperation: providerOp, alreadyProcessed: true };
-        }
-
-        const payment = await Payment.findOne({
-          _id: providerOp.paymentId,
-          merchantId: auth.merchantId,
-        }).session(session);
-        if (!payment) {
-          throw new AppError(404, "PAYMENT_NOT_FOUND", "Payment not found");
-        }
-
-        await ProviderOperation.updateOne(
-          { _id: providerOp._id },
-          { $set: { state: OPERATION_STATES.IN_FLIGHT, lastAttemptAt: now() } },
-          { session },
+      if (payment.status !== PAYMENT_STATUS.QUEUED) {
+        throw new AppError(
+          409,
+          "INVALID_PAYMENT_STATE",
+          "Only QUEUED payments can be authorized",
         );
+      }
 
-        try {
-          const response = await providerClient.authorize({
-            clientOperationId: providerOp.clientOperationId,
-            amountMinor: providerOp.amountMinor.toString(),
-            currency: providerOp.currency,
-            paymentMethod: providerOp.requestPayload.paymentMethod,
-            description: providerOp.requestPayload.description,
-            metadata: providerOp.requestPayload.metadata,
-            idempotencyKey: providerOp.idempotencyKey,
-            merchantId: String(auth.merchantId),
-          });
+      const clientOperationId = generateClientOperationId("auth");
 
-          const providerResponse = response.data;
-          const providerOperationIdFromProvider = providerResponse.operationId;
-          const providerStatus = providerResponse.status;
-          const providerReference = providerResponse.providerReference;
-
-          await ProviderOperation.updateOne(
-            { _id: providerOp._id },
-            {
-              $set: {
-                providerOperationId: providerOperationIdFromProvider,
-                responsePayload: providerResponse,
-                providerReference,
-                attemptCount: providerOp.attemptCount + 1,
-                lastAttemptAt: now(),
-              },
+      const providerOperation = await createProviderOperation(
+        session,
+        auth,
+        payment,
+        {
+          type: AUTHORIZE,
+          clientOperationId,
+          amountMinor: payment.amountMinor,
+          idempotencyKey: `${idempotencyKey}-auth`,
+          requestPayload: {
+            clientOperationId,
+            amountMinor: payment.amountMinor.toString(),
+            currency: payment.currency,
+            paymentMethod: {
+              type: "card",
+              token: "tok_demo_123",
             },
-            { session },
-          );
-
-          if (providerStatus === "SUCCEEDED") {
-            const updatedPayment = await Payment.findOneAndUpdate(
-              {
-                _id: payment._id,
-                merchantId: auth.merchantId,
-                status: PAYMENT_STATUS.AUTHORIZING,
-                version: payment.version,
-              },
-              {
-                $set: { status: PAYMENT_STATUS.AUTHORIZED },
-                $inc: { version: 1 },
-              },
-              { returnDocument: "after", session },
-            );
-
-            if (!updatedPayment) {
-              throw new AppError(
-                409,
-                "PAYMENT_CONCURRENCY_CONFLICT",
-                "Payment state changed during authorization completion",
-              );
-            }
-
-            await ProviderOperation.updateOne(
-              { _id: providerOp._id },
-              {
-                $set: {
-                  state: OPERATION_STATES.SUCCEEDED,
-                  processingCompletedAt: now(),
-                },
-              },
-              { session },
-            );
-
-            await recordPaymentEvent(
-              {
-                paymentId: payment._id,
-                merchantId: auth.merchantId,
-                eventType: "payment.authorized",
-                fromStatus: PAYMENT_STATUS.AUTHORIZING,
-                toStatus: PAYMENT_STATUS.AUTHORIZED,
-                actorRole: "provider",
-                summary: "Authorization succeeded",
-                metadata: {
-                  providerOperationId: providerOperationIdFromProvider,
-                  providerReference,
-                },
-                isDemo: auth.isDemo,
-              },
-              session,
-            );
-
-            await OutboxEvent.create(
-              [
-                {
-                  merchantId: auth.merchantId,
-                  aggregateType: "payment",
-                  aggregateId: payment._id,
-                  eventType: OUTBOX_EVENT_TYPES.PAYMENT_CAPTURE_REQUESTED,
-                  payload: {
-                    paymentId: String(payment._id),
-                    merchantId: String(auth.merchantId),
-                    amountMinor: payment.amountMinor.toString(),
-                    currency: payment.currency,
-                    mode: "automatic",
-                  },
-                  state: OUTBOX_STATE.PENDING,
-                  availableAt: now(),
-                  isDemo: auth.isDemo,
-                },
-              ],
-              { session },
-            );
-
-            return {
-              providerOperation: await ProviderOperation.findById(
-                providerOp._id,
-              )
-                .session(session)
-                .lean(),
-              payment: toPaymentDto(updatedPayment),
-            };
-          }
-
-          if (providerStatus === "DECLINED") {
-            const updatedPayment = await Payment.findOneAndUpdate(
-              {
-                _id: payment._id,
-                merchantId: auth.merchantId,
-                status: PAYMENT_STATUS.AUTHORIZING,
-                version: payment.version,
-              },
-              {
-                $set: {
-                  status: PAYMENT_STATUS.FAILED,
-                  statusReason:
-                    providerResponse.statusReason ?? "Authorization declined",
-                },
-                $inc: { version: 1 },
-              },
-              { returnDocument: "after", session },
-            );
-
-            await ProviderOperation.updateOne(
-              { _id: providerOp._id },
-              {
-                $set: {
-                  state: OPERATION_STATES.FAILED,
-                  stateReason: providerResponse.statusReason,
-                  processingCompletedAt: now(),
-                },
-              },
-              { session },
-            );
-
-            await recordPaymentEvent(
-              {
-                paymentId: payment._id,
-                merchantId: auth.merchantId,
-                eventType: "payment.failed",
-                fromStatus: PAYMENT_STATUS.AUTHORIZING,
-                toStatus: PAYMENT_STATUS.FAILED,
-                actorRole: "provider",
-                summary: "Authorization declined",
-                metadata: {
-                  providerOperationId: providerOperationIdFromProvider,
-                  reason: providerResponse.statusReason,
-                },
-                isDemo: auth.isDemo,
-              },
-              session,
-            );
-
-            return {
-              providerOperation: await ProviderOperation.findById(
-                providerOp._id,
-              )
-                .session(session)
-                .lean(),
-              payment: toPaymentDto(updatedPayment),
-            };
-          }
-
-          if (providerStatus === "UNKNOWN_TO_CLIENT" || response.timeout) {
-            const updatedPayment = await Payment.findOneAndUpdate(
-              {
-                _id: payment._id,
-                merchantId: auth.merchantId,
-                status: PAYMENT_STATUS.AUTHORIZING,
-                version: payment.version,
-              },
-              {
-                $set: {
-                  status: PAYMENT_STATUS.UNKNOWN,
-                  statusReason: "Provider timeout - outcome unknown",
-                },
-                $inc: { version: 1 },
-              },
-              { returnDocument: "after", session },
-            );
-
-            await ProviderOperation.updateOne(
-              { _id: providerOp._id },
-              {
-                $set: {
-                  state: OPERATION_STATES.UNKNOWN,
-                  stateReason: "Provider timeout - outcome unknown",
-                  processingCompletedAt: now(),
-                  faultInjected: providerResponse.faultInjected,
-                },
-              },
-              { session },
-            );
-
-            await recordPaymentEvent(
-              {
-                paymentId: payment._id,
-                merchantId: auth.merchantId,
-                eventType: "payment.unknown",
-                fromStatus: PAYMENT_STATUS.AUTHORIZING,
-                toStatus: PAYMENT_STATUS.UNKNOWN,
-                actorRole: "provider",
-                summary: "Authorization outcome unknown - provider timeout",
-                metadata: {
-                  providerOperationId: providerOperationIdFromProvider,
-                },
-                isDemo: auth.isDemo,
-              },
-              session,
-            );
-
-            await OutboxEvent.create(
-              [
-                {
-                  merchantId: auth.merchantId,
-                  aggregateType: "payment",
-                  aggregateId: payment._id,
-                  eventType:
-                    OUTBOX_EVENT_TYPES.PAYMENT_RECONCILIATION_REQUESTED,
-                  payload: {
-                    paymentId: String(payment._id),
-                    merchantId: String(auth.merchantId),
-                    reason: "authorization_timeout",
-                  },
-                  state: OUTBOX_STATE.PENDING,
-                  availableAt: now(),
-                  isDemo: auth.isDemo,
-                },
-              ],
-              { session },
-            );
-
-            return {
-              providerOperation: await ProviderOperation.findById(
-                providerOp._id,
-              )
-                .session(session)
-                .lean(),
-              payment: toPaymentDto(updatedPayment),
-            };
-          }
-
-          throw new AppError(
-            502,
-            "PROVIDER_UNEXPECTED_STATUS",
-            `Unexpected provider status: ${providerStatus}`,
-          );
-        } catch (error) {
-          if (error instanceof AppError && error.code === "PROVIDER_TIMEOUT") {
-            await ProviderOperation.updateOne(
-              { _id: providerOp._id },
-              {
-                $set: {
-                  state: OPERATION_STATES.UNKNOWN,
-                  stateReason: "Provider timeout - outcome unknown",
-                  processingCompletedAt: now(),
-                  faultInjected: "timeout",
-                },
-              },
-              { session },
-            );
-
-            await Payment.findOneAndUpdate(
-              {
-                _id: payment._id,
-                merchantId: auth.merchantId,
-                status: PAYMENT_STATUS.AUTHORIZING,
-              },
-              {
-                $set: {
-                  status: PAYMENT_STATUS.UNKNOWN,
-                  statusReason: "Provider timeout - outcome unknown",
-                },
-                $inc: { version: 1 },
-              },
-              { session },
-            );
-
-            await OutboxEvent.create(
-              [
-                {
-                  merchantId: auth.merchantId,
-                  aggregateType: "payment",
-                  aggregateId: payment._id,
-                  eventType:
-                    OUTBOX_EVENT_TYPES.PAYMENT_RECONCILIATION_REQUESTED,
-                  payload: {
-                    paymentId: String(payment._id),
-                    merchantId: String(auth.merchantId),
-                    reason: "authorization_timeout",
-                  },
-                  state: OUTBOX_STATE.PENDING,
-                  availableAt: now(),
-                  isDemo: auth.isDemo,
-                },
-              ],
-              { session },
-            );
-
-            return {
-              providerOperation: await ProviderOperation.findById(
-                providerOp._id,
-              )
-                .session(session)
-                .lean(),
-              payment: await Payment.findById(payment._id)
-                .session(session)
-                .lean()
-                .then(toPaymentDto),
-            };
-          }
-          throw error;
-        }
-      },
-      {
-        reconcile: async () => {
-          const op =
-            await ProviderOperation.findById(providerOperationId).lean();
-          return op ? { providerOperation: op } : null;
+            description: payment.description,
+            metadata: payment.metadata,
+          },
         },
-      },
-    );
+      );
+
+      const updated = await updatePaymentStatus(
+        session,
+        payment,
+        auth.merchantId,
+        PAYMENT_STATUS.AUTHORIZING,
+      );
+
+      await addEvent(session, auth, payment, {
+        eventType: "payment.authorizing",
+        fromStatus: payment.status,
+        toStatus: PAYMENT_STATUS.AUTHORIZING,
+        summary: "Authorization requested",
+        metadata: {
+          providerOperationId: String(providerOperation._id),
+        },
+      });
+
+      await enqueueEvent(
+        session,
+        auth,
+        payment,
+        OUTBOX_EVENT_TYPES.PAYMENT_AUTHORIZE_REQUESTED,
+        {
+          providerOperationId: String(providerOperation._id),
+          clientOperationId,
+        },
+      );
+
+      return {
+        providerOperation,
+        payment: toPaymentDto(updated),
+        alreadyInProgress: false,
+      };
+    });
   }
 
   async function initiateCapture({
     auth,
     paymentId,
     idempotencyKey,
+    amountMinor,
     mode = "automatic",
   }) {
-    return runFinancialTransaction(
-      async (session) => {
-        const payment = await Payment.findOne({
-          _id: paymentId,
-          merchantId: auth.merchantId,
-        }).session(session);
-        if (!payment) {
-          throw new AppError(404, "PAYMENT_NOT_FOUND", "Payment not found");
-        }
+    return runFinancialTransaction(async (session) => {
+      const payment = await loadPayment(session, auth, paymentId);
 
-        if (payment.status !== PAYMENT_STATUS.AUTHORIZED) {
-          throw new AppError(
-            409,
-            "INVALID_PAYMENT_STATE",
-            "Only AUTHORIZED payments can be captured",
-            { status: payment.status },
-          );
-        }
+      const existing = await ProviderOperation.findOne({
+        paymentId,
+        merchantId: auth.merchantId,
+        type: CAPTURE,
+        state: { $in: [PENDING, IN_FLIGHT, UNKNOWN] },
+      })
+        .session(session)
+        .lean();
 
-        const existingOp = await ProviderOperation.findOne({
-          paymentId,
-          type: OPERATION_TYPES.CAPTURE,
-          state: {
-            $in: [
-              OPERATION_STATES.PENDING,
-              OPERATION_STATES.IN_FLIGHT,
-              OPERATION_STATES.UNKNOWN,
-            ],
-          },
-        })
-          .session(session)
-          .lean();
-
-        if (existingOp) {
-          return {
-            providerOperation: existingOp,
-            payment: toPaymentDto(payment),
-            alreadyInProgress: true,
-          };
-        }
-
-        const clientOperationId = generateClientOperationId("cap");
-        const providerIdempotencyKey = `${idempotencyKey}-capture`;
-
-        const authOp = await ProviderOperation.findOne({
-          paymentId,
-          type: OPERATION_TYPES.AUTHORIZE,
-          state: OPERATION_STATES.SUCCEEDED,
-        })
-          .session(session)
-          .lean();
-
-        if (!authOp || !authOp.providerOperationId) {
-          throw new AppError(
-            409,
-            "AUTHORIZATION_NOT_CONFIRMED",
-            "No confirmed authorization found for capture",
-          );
-        }
-
-        const [providerOp] = await ProviderOperation.create(
-          [
-            {
-              paymentId,
-              merchantId: auth.merchantId,
-              type: OPERATION_TYPES.CAPTURE,
-              providerOperationId: clientOperationId,
-              clientOperationId,
-              amountMinor: payment.amountMinor,
-              currency: payment.currency,
-              state: OPERATION_STATES.PENDING,
-              requestPayload: {
-                clientOperationId,
-                authorizationOperationId: authOp.providerOperationId,
-                amountMinor: payment.amountMinor.toString(),
-                currency: payment.currency,
-                metadata: payment.metadata,
-              },
-              idempotencyKey: providerIdempotencyKey,
-              isDemo: auth.isDemo,
-            },
-          ],
-          { session },
-        );
-
-        const updatedPayment = await Payment.findOneAndUpdate(
-          {
-            _id: payment._id,
-            merchantId: auth.merchantId,
-            status: PAYMENT_STATUS.AUTHORIZED,
-            version: payment.version,
-          },
-          {
-            $set: { status: PAYMENT_STATUS.CAPTURING },
-            $inc: { version: 1 },
-          },
-          { returnDocument: "after", session },
-        );
-
-        if (!updatedPayment) {
-          throw new AppError(
-            409,
-            "PAYMENT_CONCURRENCY_CONFLICT",
-            "Payment state changed during capture initiation",
-          );
-        }
-
-        await recordPaymentEvent(
-          {
-            paymentId: payment._id,
-            merchantId: auth.merchantId,
-            eventType: "payment.capturing",
-            fromStatus: PAYMENT_STATUS.AUTHORIZED,
-            toStatus: PAYMENT_STATUS.CAPTURING,
-            actorUserId: auth.user?._id ?? auth.userId,
-            actorRole: auth.role,
-            summary: `Capture requested (${mode})`,
-            metadata: {
-              clientOperationId,
-              providerOperationId: providerOp._id,
-            },
-            isDemo: auth.isDemo,
-          },
-          session,
-        );
-
-        await OutboxEvent.create(
-          [
-            {
-              merchantId: auth.merchantId,
-              aggregateType: "payment",
-              aggregateId: payment._id,
-              eventType: OUTBOX_EVENT_TYPES.PAYMENT_CAPTURE_REQUESTED,
-              payload: {
-                paymentId: String(payment._id),
-                merchantId: String(auth.merchantId),
-                providerOperationId: String(providerOp._id),
-                clientOperationId,
-                mode,
-              },
-              state: OUTBOX_STATE.PENDING,
-              availableAt: now(),
-              isDemo: auth.isDemo,
-            },
-          ],
-          { session },
-        );
-
+      if (existing) {
         return {
-          providerOperation: providerOp,
-          payment: toPaymentDto(updatedPayment),
-          alreadyInProgress: false,
+          providerOperation: existing,
+          payment: toPaymentDto(payment),
+          alreadyInProgress: true,
         };
-      },
-      {
-        reconcile: async () => {
-          const op = await ProviderOperation.findOne({
-            paymentId,
-            type: OPERATION_TYPES.CAPTURE,
-          }).lean();
-          return op ? { providerOperation: op } : null;
-        },
-      },
-    );
-  }
+      }
 
-  async function processCapture({ providerOperationId, auth }) {
-    return runFinancialTransaction(
-      async (session) => {
-        const providerOp =
-          await ProviderOperation.findById(providerOperationId).session(
-            session,
-          );
-        if (!providerOp) {
-          throw new AppError(
-            404,
-            "PROVIDER_OPERATION_NOT_FOUND",
-            "Provider operation not found",
-          );
-        }
-
-        if (
-          providerOp.state !== OPERATION_STATES.PENDING &&
-          providerOp.state !== OPERATION_STATES.IN_FLIGHT
-        ) {
-          return { providerOperation: providerOp, alreadyProcessed: true };
-        }
-
-        const payment = await Payment.findOne({
-          _id: providerOp.paymentId,
-          merchantId: auth.merchantId,
-        }).session(session);
-        if (!payment) {
-          throw new AppError(404, "PAYMENT_NOT_FOUND", "Payment not found");
-        }
-
-        await ProviderOperation.updateOne(
-          { _id: providerOp._id },
-          { $set: { state: OPERATION_STATES.IN_FLIGHT, lastAttemptAt: now() } },
-          { session },
+      if (payment.status !== PAYMENT_STATUS.AUTHORIZED) {
+        throw new AppError(
+          409,
+          "INVALID_PAYMENT_STATE",
+          "Only AUTHORIZED payments can be captured",
         );
+      }
 
-        try {
-          const response = await providerClient.capture({
-            clientOperationId: providerOp.clientOperationId,
+      const captureAmount = ensurePositiveAmount(
+        amountMinor ?? payment.amountMinor,
+        amount(payment.amountMinor),
+      );
+
+      const authorization = await ProviderOperation.findOne({
+        paymentId,
+        merchantId: auth.merchantId,
+        type: AUTHORIZE,
+        state: SUCCEEDED,
+      })
+        .session(session)
+        .lean();
+
+      if (!authorization?.providerOperationId) {
+        throw new AppError(
+          409,
+          "AUTHORIZATION_NOT_CONFIRMED",
+          "A confirmed authorization is required",
+        );
+      }
+
+      const clientOperationId = generateClientOperationId("cap");
+
+      const providerOperation = await createProviderOperation(
+        session,
+        auth,
+        payment,
+        {
+          type: CAPTURE,
+          clientOperationId,
+          amountMinor: captureAmount,
+          idempotencyKey: `${idempotencyKey}-capture`,
+          requestPayload: {
+            clientOperationId,
             authorizationOperationId:
-              providerOp.requestPayload.authorizationOperationId,
-            amountMinor: providerOp.amountMinor.toString(),
-            currency: providerOp.currency,
-            idempotencyKey: providerOp.idempotencyKey,
-            merchantId: String(auth.merchantId),
-            metadata: providerOp.requestPayload.metadata,
-          });
-
-          const providerResponse = response.data;
-          const providerOperationIdFromProvider = providerResponse.operationId;
-          const providerStatus = providerResponse.status;
-          const providerReference = providerResponse.providerReference;
-
-          await ProviderOperation.updateOne(
-            { _id: providerOp._id },
-            {
-              $set: {
-                providerOperationId: providerOperationIdFromProvider,
-                responsePayload: providerResponse,
-                providerReference,
-                attemptCount: providerOp.attemptCount + 1,
-                lastAttemptAt: now(),
-              },
-            },
-            { session },
-          );
-
-          if (providerStatus === "SUCCEEDED") {
-            const { confirmTrustedCapture } =
-              await import("../ledger/payment-ledger.service.js");
-            const result = await confirmTrustedCapture({
-              merchantId: auth.merchantId,
-              paymentId: payment._id,
-              providerEventId: providerOperationIdFromProvider,
-              actor: "provider",
-              requestId: providerOp.idempotencyKey,
-              isDemo: auth.isDemo,
-            });
-
-            await ProviderOperation.updateOne(
-              { _id: providerOp._id },
-              {
-                $set: {
-                  state: OPERATION_STATES.SUCCEEDED,
-                  processingCompletedAt: now(),
-                },
-              },
-              { session },
-            );
-
-            return {
-              providerOperation: await ProviderOperation.findById(
-                providerOp._id,
-              )
-                .session(session)
-                .lean(),
-              payment: result.payment,
-              journal: result.journal,
-            };
-          }
-
-          if (providerStatus === "DECLINED") {
-            await Payment.findOneAndUpdate(
-              {
-                _id: payment._id,
-                merchantId: auth.merchantId,
-                status: PAYMENT_STATUS.CAPTURING,
-              },
-              {
-                $set: {
-                  status: PAYMENT_STATUS.FAILED,
-                  statusReason:
-                    providerResponse.statusReason ?? "Capture declined",
-                },
-                $inc: { version: 1 },
-              },
-              { session },
-            );
-
-            await ProviderOperation.updateOne(
-              { _id: providerOp._id },
-              {
-                $set: {
-                  state: OPERATION_STATES.FAILED,
-                  stateReason: providerResponse.statusReason,
-                  processingCompletedAt: now(),
-                },
-              },
-              { session },
-            );
-
-            await recordPaymentEvent(
-              {
-                paymentId: payment._id,
-                merchantId: auth.merchantId,
-                eventType: "payment.capture.failed",
-                fromStatus: PAYMENT_STATUS.CAPTURING,
-                toStatus: PAYMENT_STATUS.FAILED,
-                actorRole: "provider",
-                summary: "Capture declined",
-                metadata: {
-                  providerOperationId: providerOperationIdFromProvider,
-                  reason: providerResponse.statusReason,
-                },
-                isDemo: auth.isDemo,
-              },
-              session,
-            );
-
-            return {
-              providerOperation: await ProviderOperation.findById(
-                providerOp._id,
-              )
-                .session(session)
-                .lean(),
-              payment: await Payment.findById(payment._id)
-                .session(session)
-                .lean()
-                .then(toPaymentDto),
-            };
-          }
-
-          if (providerStatus === "UNKNOWN_TO_CLIENT" || response.timeout) {
-            await Payment.findOneAndUpdate(
-              {
-                _id: payment._id,
-                merchantId: auth.merchantId,
-                status: PAYMENT_STATUS.CAPTURING,
-              },
-              {
-                $set: {
-                  status: PAYMENT_STATUS.UNKNOWN,
-                  statusReason: "Provider timeout - outcome unknown",
-                },
-                $inc: { version: 1 },
-              },
-              { session },
-            );
-
-            await ProviderOperation.updateOne(
-              { _id: providerOp._id },
-              {
-                $set: {
-                  state: OPERATION_STATES.UNKNOWN,
-                  stateReason: "Provider timeout - outcome unknown",
-                  processingCompletedAt: now(),
-                  faultInjected: providerResponse.faultInjected,
-                },
-              },
-              { session },
-            );
-
-            await recordPaymentEvent(
-              {
-                paymentId: payment._id,
-                merchantId: auth.merchantId,
-                eventType: "payment.capture.unknown",
-                fromStatus: PAYMENT_STATUS.CAPTURING,
-                toStatus: PAYMENT_STATUS.UNKNOWN,
-                actorRole: "provider",
-                summary: "Capture outcome unknown - provider timeout",
-                metadata: {
-                  providerOperationId: providerOperationIdFromProvider,
-                },
-                isDemo: auth.isDemo,
-              },
-              session,
-            );
-
-            await OutboxEvent.create(
-              [
-                {
-                  merchantId: auth.merchantId,
-                  aggregateType: "payment",
-                  aggregateId: payment._id,
-                  eventType:
-                    OUTBOX_EVENT_TYPES.PAYMENT_RECONCILIATION_REQUESTED,
-                  payload: {
-                    paymentId: String(payment._id),
-                    merchantId: String(auth.merchantId),
-                    reason: "capture_timeout",
-                  },
-                  state: OUTBOX_STATE.PENDING,
-                  availableAt: now(),
-                  isDemo: auth.isDemo,
-                },
-              ],
-              { session },
-            );
-
-            return {
-              providerOperation: await ProviderOperation.findById(
-                providerOp._id,
-              )
-                .session(session)
-                .lean(),
-              payment: await Payment.findById(payment._id)
-                .session(session)
-                .lean()
-                .then(toPaymentDto),
-            };
-          }
-
-          throw new AppError(
-            502,
-            "PROVIDER_UNEXPECTED_STATUS",
-            `Unexpected provider status: ${providerStatus}`,
-          );
-        } catch (error) {
-          if (error instanceof AppError && error.code === "PROVIDER_TIMEOUT") {
-            await ProviderOperation.updateOne(
-              { _id: providerOp._id },
-              {
-                $set: {
-                  state: OPERATION_STATES.UNKNOWN,
-                  stateReason: "Provider timeout - outcome unknown",
-                  processingCompletedAt: now(),
-                  faultInjected: "timeout",
-                },
-              },
-              { session },
-            );
-
-            await Payment.findOneAndUpdate(
-              {
-                _id: payment._id,
-                merchantId: auth.merchantId,
-                status: PAYMENT_STATUS.CAPTURING,
-              },
-              {
-                $set: {
-                  status: PAYMENT_STATUS.UNKNOWN,
-                  statusReason: "Provider timeout - outcome unknown",
-                },
-                $inc: { version: 1 },
-              },
-              { session },
-            );
-
-            await OutboxEvent.create(
-              [
-                {
-                  merchantId: auth.merchantId,
-                  aggregateType: "payment",
-                  aggregateId: payment._id,
-                  eventType:
-                    OUTBOX_EVENT_TYPES.PAYMENT_RECONCILIATION_REQUESTED,
-                  payload: {
-                    paymentId: String(payment._id),
-                    merchantId: String(auth.merchantId),
-                    reason: "capture_timeout",
-                  },
-                  state: OUTBOX_STATE.PENDING,
-                  availableAt: now(),
-                  isDemo: auth.isDemo,
-                },
-              ],
-              { session },
-            );
-
-            return {
-              providerOperation: await ProviderOperation.findById(
-                providerOp._id,
-              )
-                .session(session)
-                .lean(),
-              payment: await Payment.findById(payment._id)
-                .session(session)
-                .lean()
-                .then(toPaymentDto),
-            };
-          }
-          throw error;
-        }
-      },
-      {
-        reconcile: async () => {
-          const op =
-            await ProviderOperation.findById(providerOperationId).lean();
-          return op ? { providerOperation: op } : null;
+              authorization.providerOperationId,
+            amountMinor: captureAmount.toString(),
+            currency: payment.currency,
+            metadata: payment.metadata,
+          },
         },
-      },
-    );
+      );
+
+      const updated = await updatePaymentStatus(
+        session,
+        payment,
+        auth.merchantId,
+        PAYMENT_STATUS.CAPTURING,
+      );
+
+      await addEvent(session, auth, payment, {
+        eventType: "payment.capturing",
+        fromStatus: payment.status,
+        toStatus: PAYMENT_STATUS.CAPTURING,
+        summary: `Capture requested (${mode})`,
+        metadata: {
+          providerOperationId: String(providerOperation._id),
+          amountMinor: captureAmount.toString(),
+        },
+      });
+
+      await enqueueEvent(
+        session,
+        auth,
+        payment,
+        OUTBOX_EVENT_TYPES.PAYMENT_CAPTURE_REQUESTED,
+        {
+          providerOperationId: String(providerOperation._id),
+          clientOperationId,
+          amountMinor: captureAmount.toString(),
+          mode,
+        },
+      );
+
+      return {
+        providerOperation,
+        payment: toPaymentDto(updated),
+        alreadyInProgress: false,
+      };
+    });
   }
 
   async function initiateRefund({
@@ -1051,609 +591,786 @@ export async function createPaymentOrchestratorService(config, logger) {
     reason,
     idempotencyKey,
   }) {
-    return runFinancialTransaction(
-      async (session) => {
-        const payment = await Payment.findOne({
-          _id: paymentId,
-          merchantId: auth.merchantId,
-        }).session(session);
-        if (!payment) {
-          throw new AppError(404, "PAYMENT_NOT_FOUND", "Payment not found");
-        }
+    return runFinancialTransaction(async (session) => {
+      const payment = await loadPayment(session, auth, paymentId);
 
-        const allowedStatuses = [
-          PAYMENT_STATUS.CAPTURED,
-          PAYMENT_STATUS.REFUND_PENDING,
-          PAYMENT_STATUS.PARTIALLY_REFUNDED,
-        ];
-        if (!allowedStatuses.includes(payment.status)) {
+      const allowed = [
+        PAYMENT_STATUS.CAPTURED,
+        PAYMENT_STATUS.REFUND_PENDING,
+        PAYMENT_STATUS.PARTIALLY_REFUNDED,
+      ];
+
+      const existing = await ProviderOperation.findOne({
+        paymentId,
+        merchantId: auth.merchantId,
+        type: REFUND,
+        idempotencyKey: `${idempotencyKey}-refund`,
+      })
+        .session(session)
+        .lean();
+
+      if (existing) {
+        if (
+          amount(existing.amountMinor) !== amount(amountMinor) ||
+          (existing.requestPayload?.reason ?? null) !== (reason ?? null)
+        ) {
           throw new AppError(
             409,
-            "INVALID_PAYMENT_STATE",
-            "Payment must be captured to process refunds",
-            { status: payment.status },
+            "IDEMPOTENCY_CONFLICT",
+            "Refund idempotency key was used with a different request",
           );
         }
-
-        const capturedMinor = BigInt(
-          payment.capturedMinor ?? payment.amountMinor,
-        );
-        const remainingRefundable = capturedMinor - payment.refundedMinor;
-        const refundAmount = BigInt(amountMinor);
-
-        if (refundAmount <= 0n) {
-          throw new AppError(
-            422,
-            "INVALID_REFUND_AMOUNT",
-            "Refund amount must be positive",
-          );
-        }
-        if (refundAmount > remainingRefundable) {
-          throw new AppError(
-            409,
-            "REFUND_EXCEEDS_CAPTURE",
-            "Refund amount exceeds available captured funds",
-            { refundableMinor: remainingRefundable.toString() },
-          );
-        }
-
-        const captureOp = await ProviderOperation.findOne({
-          paymentId,
-          type: OPERATION_TYPES.CAPTURE,
-          state: OPERATION_STATES.SUCCEEDED,
-        })
-          .session(session)
-          .lean();
-
-        if (!captureOp || !captureOp.providerOperationId) {
-          throw new AppError(
-            409,
-            "CAPTURE_NOT_CONFIRMED",
-            "No confirmed capture found for refund",
-          );
-        }
-
-        const clientOperationId = generateClientOperationId("ref");
-        const providerIdempotencyKey = `${idempotencyKey}-refund`;
-
-        const [providerOp] = await ProviderOperation.create(
-          [
-            {
-              paymentId,
-              merchantId: auth.merchantId,
-              type: OPERATION_TYPES.REFUND,
-              providerOperationId: clientOperationId,
-              clientOperationId,
-              amountMinor: refundAmount,
-              currency: payment.currency,
-              state: OPERATION_STATES.PENDING,
-              requestPayload: {
-                clientOperationId,
-                captureOperationId: captureOp.providerOperationId,
-                amountMinor: refundAmount.toString(),
-                currency: payment.currency,
-                reason,
-                metadata: payment.metadata,
-              },
-              idempotencyKey: providerIdempotencyKey,
-              isDemo: auth.isDemo,
-            },
-          ],
-          { session },
-        );
-
-        const newRefunded = payment.refundedMinor + refundAmount;
-        const nextStatus =
-          newRefunded === capturedMinor
-            ? PAYMENT_STATUS.REFUNDED
-            : PAYMENT_STATUS.REFUND_PENDING;
-
-        const updatedPayment = await Payment.findOneAndUpdate(
-          {
-            _id: payment._id,
-            merchantId: auth.merchantId,
-            version: payment.version,
-            refundedMinor: payment.refundedMinor,
-            status: { $in: allowedStatuses },
-          },
-          {
-            $set: { status: nextStatus, refundedMinor: newRefunded },
-            $inc: { version: 1 },
-          },
-          { returnDocument: "after", session },
-        );
-
-        if (!updatedPayment) {
-          throw new AppError(
-            409,
-            "PAYMENT_CONCURRENCY_CONFLICT",
-            "Payment state changed during refund initiation",
-          );
-        }
-
-        await recordPaymentEvent(
-          {
-            paymentId: payment._id,
-            merchantId: auth.merchantId,
-            eventType: "payment.refund.requested",
-            fromStatus: payment.status,
-            toStatus: nextStatus,
-            actorUserId: auth.user?._id ?? auth.userId,
-            actorRole: auth.role,
-            summary: `Refund requested: ${refundAmount.toString()} ${payment.currency}`,
-            metadata: {
-              clientOperationId,
-              providerOperationId: providerOp._id,
-              amountMinor: refundAmount.toString(),
-              reason,
-            },
-            isDemo: auth.isDemo,
-          },
-          session,
-        );
-
-        await OutboxEvent.create(
-          [
-            {
-              merchantId: auth.merchantId,
-              aggregateType: "payment",
-              aggregateId: payment._id,
-              eventType: OUTBOX_EVENT_TYPES.PAYMENT_REFUND_REQUESTED,
-              payload: {
-                paymentId: String(payment._id),
-                merchantId: String(auth.merchantId),
-                providerOperationId: String(providerOp._id),
-                clientOperationId,
-                amountMinor: refundAmount.toString(),
-                reason,
-              },
-              state: OUTBOX_STATE.PENDING,
-              availableAt: now(),
-              isDemo: auth.isDemo,
-            },
-          ],
-          { session },
-        );
 
         return {
-          providerOperation: providerOp,
-          payment: toPaymentDto(updatedPayment),
-          alreadyInProgress: false,
+          providerOperation: existing,
+          payment: toPaymentDto(payment),
+          alreadyInProgress: true,
         };
-      },
-      {
-        reconcile: async () => {
-          const op = await ProviderOperation.findOne({
-            paymentId,
-            type: OPERATION_TYPES.REFUND,
-          }).lean();
-          return op ? { providerOperation: op } : null;
-        },
-      },
-    );
-  }
+      }
 
-  async function processRefund({ providerOperationId, auth }) {
-    return runFinancialTransaction(
-      async (session) => {
-        const providerOp =
-          await ProviderOperation.findById(providerOperationId).session(
-            session,
-          );
-        if (!providerOp) {
-          throw new AppError(
-            404,
-            "PROVIDER_OPERATION_NOT_FOUND",
-            "Provider operation not found",
-          );
-        }
-
-        if (
-          providerOp.state !== OPERATION_STATES.PENDING &&
-          providerOp.state !== OPERATION_STATES.IN_FLIGHT
-        ) {
-          return { providerOperation: providerOp, alreadyProcessed: true };
-        }
-
-        const payment = await Payment.findOne({
-          _id: providerOp.paymentId,
-          merchantId: auth.merchantId,
-        }).session(session);
-        if (!payment) {
-          throw new AppError(404, "PAYMENT_NOT_FOUND", "Payment not found");
-        }
-
-        await ProviderOperation.updateOne(
-          { _id: providerOp._id },
-          { $set: { state: OPERATION_STATES.IN_FLIGHT, lastAttemptAt: now() } },
-          { session },
+      if (!allowed.includes(payment.status)) {
+        throw new AppError(
+          409,
+          "INVALID_PAYMENT_STATE",
+          "Only captured payments can be refunded",
         );
+      }
 
-        try {
-          const response = await providerClient.refund({
-            clientOperationId: providerOp.clientOperationId,
-            captureOperationId: providerOp.requestPayload.captureOperationId,
-            amountMinor: providerOp.amountMinor.toString(),
-            currency: providerOp.currency,
-            idempotencyKey: providerOp.idempotencyKey,
-            merchantId: String(auth.merchantId),
-            reason: providerOp.requestPayload.reason,
-            metadata: providerOp.requestPayload.metadata,
-          });
+      const captured = amount(payment.capturedMinor);
+      const refunded = amount(payment.refundedMinor);
 
-          const providerResponse = response.data;
-          const providerOperationIdFromProvider = providerResponse.operationId;
-          const providerStatus = providerResponse.status;
-          const providerReference = providerResponse.providerReference;
+      const pendingOperations = await ProviderOperation.find({
+        paymentId,
+        merchantId: auth.merchantId,
+        type: REFUND,
+        state: { $in: [PENDING, IN_FLIGHT, UNKNOWN] },
+      })
+        .session(session)
+        .select("amountMinor")
+        .lean();
 
-          await ProviderOperation.updateOne(
-            { _id: providerOp._id },
-            {
-              $set: {
-                providerOperationId: providerOperationIdFromProvider,
-                responsePayload: providerResponse,
-                providerReference,
-                attemptCount: providerOp.attemptCount + 1,
-                lastAttemptAt: now(),
-              },
-            },
-            { session },
-          );
+      const reserved = pendingOperations.reduce(
+        (total, operation) => total + amount(operation.amountMinor),
+        0n,
+      );
 
-          if (providerStatus === "SUCCEEDED") {
-            const { confirmTrustedRefund } =
-              await import("../ledger/payment-ledger.service.js");
-            const result = await confirmTrustedRefund({
-              merchantId: auth.merchantId,
-              paymentId: payment._id,
-              providerEventId: providerOperationIdFromProvider,
-              amountMinor: providerOp.amountMinor.toString(),
-              actor: "provider",
-              requestId: providerOp.idempotencyKey,
-              isDemo: auth.isDemo,
-            });
+      const refundable = captured - refunded - reserved;
 
-            await ProviderOperation.updateOne(
-              { _id: providerOp._id },
-              {
-                $set: {
-                  state: OPERATION_STATES.SUCCEEDED,
-                  processingCompletedAt: now(),
-                },
-              },
-              { session },
-            );
+      if (refundable <= 0n) {
+        throw new AppError(
+          409,
+          "NO_REFUNDABLE_BALANCE",
+          "No captured funds are available for refund",
+        );
+      }
 
-            return {
-              providerOperation: await ProviderOperation.findById(
-                providerOp._id,
-              )
-                .session(session)
-                .lean(),
-              payment: result.payment,
-              journal: result.journal,
-            };
-          }
+      const refundAmount = ensurePositiveAmount(
+        amountMinor,
+        refundable,
+      );
 
-          if (providerStatus === "DECLINED") {
-            const capturedMinor = BigInt(
-              payment.capturedMinor ?? payment.amountMinor,
-            );
-            const newRefunded = payment.refundedMinor - providerOp.amountMinor;
-            const nextStatus =
-              newRefunded === 0n
-                ? PAYMENT_STATUS.CAPTURED
-                : newRefunded === capturedMinor
-                  ? PAYMENT_STATUS.REFUNDED
-                  : PAYMENT_STATUS.PARTIALLY_REFUNDED;
+      const captureOperation = await ProviderOperation.findOne({
+        paymentId,
+        merchantId: auth.merchantId,
+        type: CAPTURE,
+        state: SUCCEEDED,
+      })
+        .session(session)
+        .lean();
 
-            await Payment.findOneAndUpdate(
-              { _id: payment._id, merchantId: auth.merchantId },
-              {
-                $set: { status: nextStatus, refundedMinor: newRefunded },
-                $inc: { version: 1 },
-              },
-              { session },
-            );
+      if (!captureOperation?.providerOperationId) {
+        throw new AppError(
+          409,
+          "CAPTURE_NOT_CONFIRMED",
+          "A confirmed capture is required for refund",
+        );
+      }
 
-            await ProviderOperation.updateOne(
-              { _id: providerOp._id },
-              {
-                $set: {
-                  state: OPERATION_STATES.FAILED,
-                  stateReason: providerResponse.statusReason,
-                  processingCompletedAt: now(),
-                },
-              },
-              { session },
-            );
+      const clientOperationId = generateClientOperationId("ref");
 
-            await recordPaymentEvent(
-              {
-                paymentId: payment._id,
-                merchantId: auth.merchantId,
-                eventType: "payment.refund.failed",
-                fromStatus: payment.status,
-                toStatus: nextStatus,
-                actorRole: "provider",
-                summary: "Refund declined",
-                metadata: {
-                  providerOperationId: providerOperationIdFromProvider,
-                  reason: providerResponse.statusReason,
-                },
-                isDemo: auth.isDemo,
-              },
-              session,
-            );
-
-            return {
-              providerOperation: await ProviderOperation.findById(
-                providerOp._id,
-              )
-                .session(session)
-                .lean(),
-              payment: await Payment.findById(payment._id)
-                .session(session)
-                .lean()
-                .then(toPaymentDto),
-            };
-          }
-
-          if (providerStatus === "UNKNOWN_TO_CLIENT" || response.timeout) {
-            await ProviderOperation.updateOne(
-              { _id: providerOp._id },
-              {
-                $set: {
-                  state: OPERATION_STATES.UNKNOWN,
-                  stateReason: "Provider timeout - outcome unknown",
-                  processingCompletedAt: now(),
-                  faultInjected: providerResponse.faultInjected,
-                },
-              },
-              { session },
-            );
-
-            await recordPaymentEvent(
-              {
-                paymentId: payment._id,
-                merchantId: auth.merchantId,
-                eventType: "payment.refund.unknown",
-                fromStatus: payment.status,
-                toStatus: payment.status,
-                actorRole: "provider",
-                summary: "Refund outcome unknown - provider timeout",
-                metadata: {
-                  providerOperationId: providerOperationIdFromProvider,
-                },
-                isDemo: auth.isDemo,
-              },
-              session,
-            );
-
-            await OutboxEvent.create(
-              [
-                {
-                  merchantId: auth.merchantId,
-                  aggregateType: "payment",
-                  aggregateId: payment._id,
-                  eventType:
-                    OUTBOX_EVENT_TYPES.PAYMENT_RECONCILIATION_REQUESTED,
-                  payload: {
-                    paymentId: String(payment._id),
-                    merchantId: String(auth.merchantId),
-                    reason: "refund_timeout",
-                  },
-                  state: OUTBOX_STATE.PENDING,
-                  availableAt: now(),
-                  isDemo: auth.isDemo,
-                },
-              ],
-              { session },
-            );
-
-            return {
-              providerOperation: await ProviderOperation.findById(
-                providerOp._id,
-              )
-                .session(session)
-                .lean(),
-              payment: toPaymentDto(payment),
-            };
-          }
-
-          throw new AppError(
-            502,
-            "PROVIDER_UNEXPECTED_STATUS",
-            `Unexpected provider status: ${providerStatus}`,
-          );
-        } catch (error) {
-          if (error instanceof AppError && error.code === "PROVIDER_TIMEOUT") {
-            await ProviderOperation.updateOne(
-              { _id: providerOp._id },
-              {
-                $set: {
-                  state: OPERATION_STATES.UNKNOWN,
-                  stateReason: "Provider timeout - outcome unknown",
-                  processingCompletedAt: now(),
-                  faultInjected: "timeout",
-                },
-              },
-              { session },
-            );
-
-            await OutboxEvent.create(
-              [
-                {
-                  merchantId: auth.merchantId,
-                  aggregateType: "payment",
-                  aggregateId: payment._id,
-                  eventType:
-                    OUTBOX_EVENT_TYPES.PAYMENT_RECONCILIATION_REQUESTED,
-                  payload: {
-                    paymentId: String(payment._id),
-                    merchantId: String(auth.merchantId),
-                    reason: "refund_timeout",
-                  },
-                  state: OUTBOX_STATE.PENDING,
-                  availableAt: now(),
-                  isDemo: auth.isDemo,
-                },
-              ],
-              { session },
-            );
-
-            return {
-              providerOperation: await ProviderOperation.findById(
-                providerOp._id,
-              )
-                .session(session)
-                .lean(),
-              payment: toPaymentDto(payment),
-            };
-          }
-          throw error;
-        }
-      },
-      {
-        reconcile: async () => {
-          const op =
-            await ProviderOperation.findById(providerOperationId).lean();
-          return op ? { providerOperation: op } : null;
+      const providerOperation = await createProviderOperation(
+        session,
+        auth,
+        payment,
+        {
+          type: REFUND,
+          clientOperationId,
+          amountMinor: refundAmount,
+          idempotencyKey: `${idempotencyKey}-refund`,
+          requestPayload: {
+            clientOperationId,
+            captureOperationId:
+              captureOperation.providerOperationId,
+            amountMinor: refundAmount.toString(),
+            currency: payment.currency,
+            reason,
+            metadata: payment.metadata,
+          },
         },
-      },
-    );
+      );
+
+      const updated = await updatePaymentStatus(
+        session,
+        payment,
+        auth.merchantId,
+        PAYMENT_STATUS.REFUND_PENDING,
+      );
+
+      await addEvent(session, auth, payment, {
+        eventType: "payment.refund.requested",
+        fromStatus: payment.status,
+        toStatus: PAYMENT_STATUS.REFUND_PENDING,
+        summary: "Refund requested",
+        metadata: {
+          providerOperationId: String(providerOperation._id),
+          amountMinor: refundAmount.toString(),
+          reason,
+        },
+      });
+
+      await enqueueEvent(
+        session,
+        auth,
+        payment,
+        OUTBOX_EVENT_TYPES.PAYMENT_REFUND_REQUESTED,
+        {
+          providerOperationId: String(providerOperation._id),
+          clientOperationId,
+          amountMinor: refundAmount.toString(),
+          reason,
+        },
+      );
+
+      return {
+        providerOperation,
+        payment: toPaymentDto(updated),
+        alreadyInProgress: false,
+      };
+    });
   }
 
-  async function reconcileAuthorization({ providerOperationId, auth }) {
-    const providerOp =
-      await ProviderOperation.findById(providerOperationId).lean();
-    if (!providerOp || !providerOp.providerOperationId) {
-      throw new AppError(
-        404,
-        "PROVIDER_OPERATION_NOT_FOUND",
-        "Provider operation not found or not yet dispatched",
+  async function completeAuthorization({
+    providerOperationId,
+    auth,
+    providerResponse,
+  }) {
+    return runFinancialTransaction(async (session) => {
+      const operation = await ProviderOperation.findOne(
+        operationFilter(providerOperationId, auth.merchantId),
+      ).session(session);
+
+      if (!operation) {
+        throw new AppError(
+          404,
+          "PROVIDER_OPERATION_NOT_FOUND",
+          "Provider operation not found",
+        );
+      }
+
+      if ([SUCCEEDED, FAILED].includes(operation.state)) {
+        return {
+          providerOperation: operation,
+          alreadyProcessed: true,
+        };
+      }
+
+      const payment = await loadPayment(
+        session,
+        auth,
+        operation.paymentId,
       );
-    }
 
-    const response = await providerClient.getOperation({
-      operationId: providerOp.providerOperationId,
-      idempotencyKey: `reconcile-${providerOp._id}`,
-    });
+      const succeeded = providerResponse.status === "SUCCEEDED";
+      const declined = providerResponse.status === "DECLINED";
 
-    const providerResponse = response.data;
-    const providerStatus = providerResponse.status;
+      if (!succeeded && !declined) {
+        throw new AppError(
+          502,
+          "PROVIDER_UNEXPECTED_STATUS",
+          "Unexpected authorization status",
+        );
+      }
 
-    if (providerStatus === "SUCCEEDED") {
-      return processAuthorization({ providerOperationId, auth });
-    }
-    if (providerStatus === "DECLINED") {
-      return processAuthorization({ providerOperationId, auth });
-    }
-    if (
-      providerStatus === "UNKNOWN_TO_CLIENT" ||
-      providerStatus === "PROCESSING" ||
-      providerStatus === "RECEIVED"
-    ) {
+      const nextStatus = succeeded
+        ? PAYMENT_STATUS.AUTHORIZED
+        : PAYMENT_STATUS.FAILED;
+
+      if (
+        ![
+          PAYMENT_STATUS.AUTHORIZING,
+          PAYMENT_STATUS.UNKNOWN,
+        ].includes(payment.status)
+      ) {
+        throw new AppError(
+          409,
+          "INVALID_PAYMENT_STATE",
+          "Payment cannot accept authorization outcome",
+        );
+      }
+
+      const updated = await updatePaymentStatus(
+        session,
+        payment,
+        auth.merchantId,
+        nextStatus,
+        {
+          statusReason: declined
+            ? providerResponse.statusReason ??
+              "Authorization declined"
+            : null,
+        },
+      );
+
+      const updatedOperation = await ProviderOperation.findOneAndUpdate(
+        {
+          _id: operation._id,
+          merchantId: auth.merchantId,
+          state: { $in: [PENDING, IN_FLIGHT, UNKNOWN] },
+        },
+        {
+          $set: {
+            state: succeeded ? SUCCEEDED : FAILED,
+            stateReason: providerResponse.statusReason ?? null,
+            providerOperationId:
+              providerResponse.operationId ??
+              operation.providerOperationId,
+            providerReference:
+              providerResponse.providerReference ?? null,
+            responsePayload: providerResponse,
+            processingCompletedAt: now(),
+          },
+        },
+        { session, returnDocument: "after" },
+      );
+
+      if (!updatedOperation) {
+        throw new AppError(
+          409,
+          "OPERATION_CONCURRENCY_CONFLICT",
+          "Authorization outcome was already changed",
+        );
+      }
+
+      await addEvent(session, auth, payment, {
+        eventType: succeeded
+          ? "payment.authorized"
+          : "payment.failed",
+        fromStatus: payment.status,
+        toStatus: nextStatus,
+        actorRole: "provider",
+        summary: succeeded
+          ? "Authorization succeeded"
+          : "Authorization declined",
+        metadata: {
+          providerOperationId: providerResponse.operationId,
+        },
+      });
+
+      if (succeeded) {
+        await enqueueEvent(
+          session,
+          auth,
+          payment,
+          OUTBOX_EVENT_TYPES.PAYMENT_CAPTURE_REQUESTED,
+          {
+            amountMinor: payment.amountMinor.toString(),
+            currency: payment.currency,
+            mode: "automatic",
+          },
+        );
+      }
+
       return {
-        providerOperation: providerOp,
-        status: "UNRESOLVED",
-        message: "Provider operation still processing or unknown",
+        providerOperation: updatedOperation,
+        payment: toPaymentDto(updated),
+      };
+    });
+  }
+
+  async function completeCapture({
+    providerOperationId,
+    auth,
+    providerResponse,
+  }) {
+    const operation = await getOperation(
+      providerOperationId,
+      auth.merchantId,
+    );
+
+    if (operation.state === SUCCEEDED) {
+      return {
+        providerOperation: operation,
+        alreadyProcessed: true,
       };
     }
 
-    throw new AppError(
-      502,
-      "PROVIDER_UNEXPECTED_STATUS",
-      `Unexpected provider status during reconciliation: ${providerStatus}`,
-    );
-  }
-
-  async function reconcileCapture({ providerOperationId, auth }) {
-    const providerOp =
-      await ProviderOperation.findById(providerOperationId).lean();
-    if (!providerOp || !providerOp.providerOperationId) {
-      throw new AppError(
-        404,
-        "PROVIDER_OPERATION_NOT_FOUND",
-        "Provider operation not found or not yet dispatched",
+    if (providerResponse.status === "SUCCEEDED") {
+      const { confirmTrustedCapture } = await import(
+        "../../ledger/payment-ledger.service.js"
       );
-    }
 
-    const response = await providerClient.getOperation({
-      operationId: providerOp.providerOperationId,
-      idempotencyKey: `reconcile-${providerOp._id}`,
-    });
+      const result = await confirmTrustedCapture({
+        merchantId: auth.merchantId,
+        paymentId: operation.paymentId,
+        providerEventId:
+          providerResponse.operationId ??
+          operation.providerOperationId,
+        amountMinor: operation.amountMinor.toString(),
+        actor: "provider",
+        requestId: operation.idempotencyKey,
+        isDemo: Boolean(auth.isDemo),
+      });
 
-    const providerResponse = response.data;
-    const providerStatus = providerResponse.status;
+      const updated = await ProviderOperation.findOneAndUpdate(
+        {
+          _id: operation._id,
+          merchantId: auth.merchantId,
+          state: { $in: [PENDING, IN_FLIGHT, UNKNOWN] },
+        },
+        {
+          $set: {
+            state: SUCCEEDED,
+            providerOperationId:
+              providerResponse.operationId ??
+              operation.providerOperationId,
+            providerReference:
+              providerResponse.providerReference ?? null,
+            responsePayload: providerResponse,
+            processingCompletedAt: now(),
+          },
+        },
+        { returnDocument: "after" },
+      );
 
-    if (providerStatus === "SUCCEEDED") {
-      return processCapture({ providerOperationId, auth });
-    }
-    if (providerStatus === "DECLINED") {
-      return processCapture({ providerOperationId, auth });
-    }
-    if (
-      providerStatus === "UNKNOWN_TO_CLIENT" ||
-      providerStatus === "PROCESSING" ||
-      providerStatus === "RECEIVED"
-    ) {
       return {
-        providerOperation: providerOp,
-        status: "UNRESOLVED",
-        message: "Provider operation still processing or unknown",
+        providerOperation: updated ?? operation,
+        payment: result.payment,
+        journal: result.journal,
       };
     }
 
-    throw new AppError(
-      502,
-      "PROVIDER_UNEXPECTED_STATUS",
-      `Unexpected provider status during reconciliation: ${providerStatus}`,
-    );
-  }
-
-  async function reconcileRefund({ providerOperationId, auth }) {
-    const providerOp =
-      await ProviderOperation.findById(providerOperationId).lean();
-    if (!providerOp || !providerOp.providerOperationId) {
+    if (providerResponse.status !== "DECLINED") {
       throw new AppError(
-        404,
-        "PROVIDER_OPERATION_NOT_FOUND",
-        "Provider operation not found or not yet dispatched",
+        502,
+        "PROVIDER_UNEXPECTED_STATUS",
+        "Unexpected capture status",
       );
     }
 
-    const response = await providerClient.getOperation({
-      operationId: providerOp.providerOperationId,
-      idempotencyKey: `reconcile-${providerOp._id}`,
-    });
+    return runFinancialTransaction(async (session) => {
+      const current = await ProviderOperation.findOne(
+        operationFilter(providerOperationId, auth.merchantId),
+      ).session(session);
 
-    const providerResponse = response.data;
-    const providerStatus = providerResponse.status;
+      if ([SUCCEEDED, FAILED].includes(current.state)) {
+        return {
+          providerOperation: current,
+          alreadyProcessed: true,
+        };
+      }
 
-    if (providerStatus === "SUCCEEDED") {
-      return processRefund({ providerOperationId, auth });
-    }
-    if (providerStatus === "DECLINED") {
-      return processRefund({ providerOperationId, auth });
-    }
-    if (
-      providerStatus === "UNKNOWN_TO_CLIENT" ||
-      providerStatus === "PROCESSING" ||
-      providerStatus === "RECEIVED"
-    ) {
+      const payment = await loadPayment(
+        session,
+        auth,
+        current.paymentId,
+      );
+
+      const updated = await updatePaymentStatus(
+        session,
+        payment,
+        auth.merchantId,
+        PAYMENT_STATUS.FAILED,
+        {
+          statusReason:
+            providerResponse.statusReason ?? "Capture declined",
+        },
+      );
+
+      current.state = FAILED;
+      current.stateReason = providerResponse.statusReason;
+      current.responsePayload = providerResponse;
+      current.processingCompletedAt = now();
+      await current.save({ session });
+
+      await addEvent(session, auth, payment, {
+        eventType: "payment.capture.failed",
+        fromStatus: payment.status,
+        toStatus: PAYMENT_STATUS.FAILED,
+        actorRole: "provider",
+        summary: "Capture declined",
+      });
+
       return {
-        providerOperation: providerOp,
-        status: "UNRESOLVED",
-        message: "Provider operation still processing or unknown",
+        providerOperation: current,
+        payment: toPaymentDto(updated),
+      };
+    });
+  }
+
+  async function completeRefund({
+    providerOperationId,
+    auth,
+    providerResponse,
+  }) {
+    const operation = await getOperation(
+      providerOperationId,
+      auth.merchantId,
+    );
+
+    if (operation.state === SUCCEEDED) {
+      return {
+        providerOperation: operation,
+        alreadyProcessed: true,
       };
     }
 
-    throw new AppError(
-      502,
-      "PROVIDER_UNEXPECTED_STATUS",
-      `Unexpected provider status during reconciliation: ${providerStatus}`,
+    if (providerResponse.status === "SUCCEEDED") {
+      const { confirmTrustedRefund } = await import(
+        "../../ledger/payment-ledger.service.js"
+      );
+
+      const result = await confirmTrustedRefund({
+        merchantId: auth.merchantId,
+        paymentId: operation.paymentId,
+        providerEventId:
+          providerResponse.operationId ??
+          operation.providerOperationId,
+        amountMinor: operation.amountMinor.toString(),
+        actor: "provider",
+        requestId: operation.idempotencyKey,
+        isDemo: Boolean(auth.isDemo),
+      });
+
+      const updated = await ProviderOperation.findOneAndUpdate(
+        {
+          _id: operation._id,
+          merchantId: auth.merchantId,
+          state: { $in: [PENDING, IN_FLIGHT, UNKNOWN] },
+        },
+        {
+          $set: {
+            state: SUCCEEDED,
+            providerOperationId:
+              providerResponse.operationId ??
+              operation.providerOperationId,
+            providerReference:
+              providerResponse.providerReference ?? null,
+            responsePayload: providerResponse,
+            processingCompletedAt: now(),
+          },
+        },
+        { returnDocument: "after" },
+      );
+
+      return {
+        providerOperation: updated ?? operation,
+        payment: result.payment,
+        journal: result.journal,
+      };
+    }
+
+    if (providerResponse.status !== "DECLINED") {
+      throw new AppError(
+        502,
+        "PROVIDER_UNEXPECTED_STATUS",
+        "Unexpected refund status",
+      );
+    }
+
+    return runFinancialTransaction(async (session) => {
+      const current = await ProviderOperation.findOne(
+        operationFilter(providerOperationId, auth.merchantId),
+      ).session(session);
+
+      if ([SUCCEEDED, FAILED].includes(current.state)) {
+        return {
+          providerOperation: current,
+          alreadyProcessed: true,
+        };
+      }
+
+      const payment = await loadPayment(
+        session,
+        auth,
+        current.paymentId,
+      );
+
+      current.state = FAILED;
+      current.stateReason = providerResponse.statusReason;
+      current.responsePayload = providerResponse;
+      current.processingCompletedAt = now();
+      await current.save({ session });
+
+      const remainingPending = await ProviderOperation.countDocuments({
+        paymentId: payment._id,
+        merchantId: auth.merchantId,
+        type: REFUND,
+        state: { $in: [PENDING, IN_FLIGHT, UNKNOWN] },
+      }).session(session);
+
+      const captured = amount(payment.capturedMinor);
+      const refunded = amount(payment.refundedMinor);
+
+      const nextStatus = remainingPending
+        ? PAYMENT_STATUS.REFUND_PENDING
+        : refunded === 0n
+          ? PAYMENT_STATUS.CAPTURED
+          : refunded >= captured
+            ? PAYMENT_STATUS.REFUNDED
+            : PAYMENT_STATUS.PARTIALLY_REFUNDED;
+
+      const updated = await updatePaymentStatus(
+        session,
+        payment,
+        auth.merchantId,
+        nextStatus,
+      );
+
+      await addEvent(session, auth, payment, {
+        eventType: "payment.refund.failed",
+        fromStatus: payment.status,
+        toStatus: nextStatus,
+        actorRole: "provider",
+        summary: "Refund declined",
+      });
+
+      return {
+        providerOperation: current,
+        payment: toPaymentDto(updated),
+      };
+    });
+  }
+
+  async function dispatch({
+    providerOperationId,
+    auth,
+    type,
+  }) {
+    const operation = await claimOperation(
+      providerOperationId,
+      auth.merchantId,
     );
+
+    if (operation.alreadyProcessed) {
+      return {
+        providerOperation: operation,
+        alreadyProcessed: true,
+      };
+    }
+
+    if (operation.type !== type) {
+      throw new AppError(
+        409,
+        "OPERATION_TYPE_MISMATCH",
+        "Provider operation type does not match dispatch request",
+      );
+    }
+
+    const payload = {
+      clientOperationId: operation.clientOperationId,
+      amountMinor: operation.amountMinor.toString(),
+      currency: operation.currency,
+      idempotencyKey: operation.idempotencyKey,
+      merchantId: String(auth.merchantId),
+      ...operation.requestPayload,
+    };
+
+    let response;
+
+    try {
+      if (type === AUTHORIZE) {
+        response = await providerClient.authorize(payload);
+      } else if (type === CAPTURE) {
+        response = await providerClient.capture(payload);
+      } else {
+        response = await providerClient.refund(payload);
+      }
+    } catch (error) {
+      if (
+        error?.code === "PROVIDER_TIMEOUT" ||
+        error?.name === "AbortError" ||
+        error?.name === "TimeoutError"
+      ) {
+        return markUnknown(
+          operation,
+          auth,
+          "Provider request timed out; reconciliation required",
+        );
+      }
+
+      throw error;
+    }
+
+    const providerResponse = response?.data ?? response;
+
+    if (!providerResponse?.status) {
+      return markUnknown(
+        operation,
+        auth,
+        "Provider returned an invalid response; reconciliation required",
+      );
+    }
+
+    if (
+      providerResponse.status === "UNKNOWN_TO_CLIENT" ||
+      response?.timeout
+    ) {
+      return markUnknown(
+        operation,
+        auth,
+        "Provider outcome is unknown; reconciliation required",
+      );
+    }
+
+    if (type === AUTHORIZE) {
+      return completeAuthorization({
+        providerOperationId,
+        auth,
+        providerResponse,
+      });
+    }
+
+    if (type === CAPTURE) {
+      return completeCapture({
+        providerOperationId,
+        auth,
+        providerResponse,
+      });
+    }
+
+    return completeRefund({
+      providerOperationId,
+      auth,
+      providerResponse,
+    });
+  }
+
+  function processAuthorization({ providerOperationId, auth }) {
+    return dispatch({
+      providerOperationId,
+      auth,
+      type: AUTHORIZE,
+    });
+  }
+
+  function processCapture({ providerOperationId, auth }) {
+    return dispatch({
+      providerOperationId,
+      auth,
+      type: CAPTURE,
+    });
+  }
+
+  function processRefund({ providerOperationId, auth }) {
+    return dispatch({
+      providerOperationId,
+      auth,
+      type: REFUND,
+    });
+  }
+
+  async function reconcileOperation({
+    providerOperationId,
+    auth,
+    type,
+  }) {
+    const operation = await getOperation(
+      providerOperationId,
+      auth.merchantId,
+    );
+
+    if (operation.type !== type) {
+      throw new AppError(
+        409,
+        "OPERATION_TYPE_MISMATCH",
+        "Provider operation type does not match reconciliation request",
+      );
+    }
+
+    if ([SUCCEEDED, FAILED].includes(operation.state)) {
+      return {
+        providerOperation: operation,
+        alreadyProcessed: true,
+      };
+    }
+
+    const response = await providerClient.getOperation({
+      operationId:
+        operation.providerOperationId ?? operation.clientOperationId,
+      idempotencyKey: `reconcile-${operation._id}`,
+    });
+
+    const providerResponse = response?.data ?? response;
+
+    if (
+      [
+        "RECEIVED",
+        "PROCESSING",
+        "UNKNOWN_TO_CLIENT",
+      ].includes(providerResponse?.status)
+    ) {
+      return {
+        providerOperation: operation,
+        status: "UNRESOLVED",
+        message: "Provider operation is still unresolved",
+      };
+    }
+
+    if (
+      !["SUCCEEDED", "DECLINED"].includes(providerResponse?.status)
+    ) {
+      throw new AppError(
+        502,
+        "PROVIDER_UNEXPECTED_STATUS",
+        "Unexpected provider reconciliation status",
+      );
+    }
+
+    if (type === AUTHORIZE) {
+      return completeAuthorization({
+        providerOperationId,
+        auth,
+        providerResponse,
+      });
+    }
+
+    if (type === CAPTURE) {
+      return completeCapture({
+        providerOperationId,
+        auth,
+        providerResponse,
+      });
+    }
+
+    return completeRefund({
+      providerOperationId,
+      auth,
+      providerResponse,
+    });
+  }
+
+  function reconcileAuthorization({ providerOperationId, auth }) {
+    return reconcileOperation({
+      providerOperationId,
+      auth,
+      type: AUTHORIZE,
+    });
+  }
+
+  function reconcileCapture({ providerOperationId, auth }) {
+    return reconcileOperation({
+      providerOperationId,
+      auth,
+      type: CAPTURE,
+    });
+  }
+
+  function reconcileRefund({ providerOperationId, auth }) {
+    return reconcileOperation({
+      providerOperationId,
+      auth,
+      type: REFUND,
+    });
   }
 
   return {

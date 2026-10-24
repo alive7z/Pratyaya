@@ -1,3 +1,4 @@
+
 import mongoose from "mongoose";
 import {
   IDEMPOTENCY_OPERATIONS,
@@ -7,10 +8,7 @@ import {
   PAYMENT_STATUS,
 } from "@pratyaya/shared";
 import { AppError } from "../../lib/errors.js";
-import {
-  runInTransaction,
-  runFinancialTransaction,
-} from "../../lib/transaction.js";
+import { runInTransaction } from "../../lib/transaction.js";
 import { Payment } from "./payment.model.js";
 import { IdempotencyRecord } from "./idempotency-record.model.js";
 import { OutboxEvent } from "./outbox-event.model.js";
@@ -62,7 +60,7 @@ export async function createPayment({ auth, body, req }) {
   const customerLabel = customerReference ?? body.description ?? reference;
 
   try {
-    const result = await runInTransaction(async (session) => {
+    return await runInTransaction(async (session) => {
       const existing = await IdempotencyRecord.findOne(
         {
           merchantId,
@@ -93,12 +91,22 @@ export async function createPayment({ auth, body, req }) {
               "Idempotency record is in progress or invalid",
             );
           }
+
           const payment = await Payment.findById(existing.paymentId)
             .session(session)
             .lean();
-          if (!payment || String(payment.merchantId) !== String(merchantId)) {
-            throw new AppError(404, "PAYMENT_NOT_FOUND", "Payment not found");
+
+          if (
+            !payment ||
+            String(payment.merchantId) !== String(merchantId)
+          ) {
+            throw new AppError(
+              404,
+              "PAYMENT_NOT_FOUND",
+              "Payment not found",
+            );
           }
+
           return {
             payment: toPaymentDto(payment),
             idempotent: true,
@@ -136,6 +144,7 @@ export async function createPayment({ auth, body, req }) {
       );
 
       let payment;
+
       try {
         [payment] = await Payment.create(
           [
@@ -165,25 +174,16 @@ export async function createPayment({ auth, body, req }) {
             null,
             { session },
           ).lean();
+
           if (existingPayment) {
-            await IdempotencyRecord.updateOne(
-              { _id: idempotency._id },
-              {
-                $set: {
-                  status: IDEMPOTENCY_STATE.COMPLETED,
-                  paymentId: existingPayment._id,
-                  completedAt: now(),
-                },
-              },
-              { session },
+            throw new AppError(
+              409,
+              "MERCHANT_REFERENCE_CONFLICT",
+              "A payment with this merchant reference already exists",
             );
-            return {
-              payment: toPaymentDto(existingPayment),
-              idempotent: true,
-              status: 201,
-            };
           }
         }
+
         throw error;
       }
 
@@ -199,6 +199,7 @@ export async function createPayment({ auth, body, req }) {
           reference: payment.reference,
         },
         "RULE_ENGINE",
+        { session },
       );
 
       if (riskResult.decision === "BLOCK") {
@@ -212,6 +213,7 @@ export async function createPayment({ auth, body, req }) {
           },
           { session },
         );
+
         throw new AppError(
           403,
           "PAYMENT_BLOCKED",
@@ -282,12 +284,21 @@ export async function createPayment({ auth, body, req }) {
         { session },
       );
 
-      return { payment: toPaymentDto(payment), idempotent: false, status: 201 };
+      return {
+        payment: toPaymentDto(payment),
+        idempotent: false,
+        status: 201,
+      };
     });
-
-    return result;
   } catch (error) {
-    if (error instanceof AppError) throw error;
+    if (error?.code === 11000) {
+      throw new AppError(
+        409,
+        "PAYMENT_CONFLICT",
+        "Payment reference or idempotency key already exists",
+      );
+    }
+
     throw error;
   }
 }
@@ -295,14 +306,23 @@ export async function createPayment({ auth, body, req }) {
 export async function listPayments({ auth, query }) {
   const merchantId = auth.merchantId;
   const filter = { merchantId };
+
   if (query.status) filter.status = query.status;
+
   if (query.from || query.to) {
     filter.createdAt = {};
-    if (query.from) filter.createdAt.$gte = new Date(query.from);
-    if (query.to) filter.createdAt.$lte = new Date(query.to);
+
+    if (query.from) {
+      filter.createdAt.$gte = new Date(query.from);
+    }
+
+    if (query.to) {
+      filter.createdAt.$lte = new Date(query.to);
+    }
   }
 
   const limit = query.limit ?? 20;
+
   const payments = await Payment.find(filter)
     .sort({ createdAt: -1, _id: -1 })
     .limit(limit)
@@ -316,21 +336,43 @@ export async function listPayments({ auth, query }) {
 
 export async function getPayment({ auth, paymentId }) {
   const merchantId = auth.merchantId;
-  const payment = await Payment.findOne({ _id: paymentId, merchantId }).lean();
+
+  const payment = await Payment.findOne({
+    _id: paymentId,
+    merchantId,
+  }).lean();
+
   if (!payment) {
-    throw new AppError(404, "PAYMENT_NOT_FOUND", "Payment not found");
+    throw new AppError(
+      404,
+      "PAYMENT_NOT_FOUND",
+      "Payment not found",
+    );
   }
+
   return toPaymentDto(payment);
 }
 
 export async function getPaymentTimeline({ auth, paymentId }) {
   const merchantId = auth.merchantId;
-  const payment = await Payment.findOne({ _id: paymentId, merchantId }).lean();
+
+  const payment = await Payment.findOne({
+    _id: paymentId,
+    merchantId,
+  }).lean();
+
   if (!payment) {
-    throw new AppError(404, "PAYMENT_NOT_FOUND", "Payment not found");
+    throw new AppError(
+      404,
+      "PAYMENT_NOT_FOUND",
+      "Payment not found",
+    );
   }
 
-  const events = await PaymentEvent.find({ paymentId, merchantId })
+  const events = await PaymentEvent.find({
+    paymentId,
+    merchantId,
+  })
     .sort({ createdAt: 1, _id: 1 })
     .lean();
 
@@ -351,12 +393,24 @@ export async function getPaymentTimeline({ auth, paymentId }) {
 
 export async function getPaymentAttempts({ auth, paymentId }) {
   const merchantId = auth.merchantId;
-  const payment = await Payment.findOne({ _id: paymentId, merchantId }).lean();
+
+  const payment = await Payment.findOne({
+    _id: paymentId,
+    merchantId,
+  }).lean();
+
   if (!payment) {
-    throw new AppError(404, "PAYMENT_NOT_FOUND", "Payment not found");
+    throw new AppError(
+      404,
+      "PAYMENT_NOT_FOUND",
+      "Payment not found",
+    );
   }
 
-  const operations = await ProviderOperation.find({ paymentId, merchantId })
+  const operations = await ProviderOperation.find({
+    paymentId,
+    merchantId,
+  })
     .sort({ createdAt: 1, _id: 1 })
     .lean();
 
@@ -380,7 +434,10 @@ export async function getPaymentAttempts({ auth, paymentId }) {
       createdAt: op.createdAt,
       completedAt: op.processingCompletedAt,
       error: op.faultInjected
-        ? { type: op.faultInjected, message: op.stateReason }
+        ? {
+            type: op.faultInjected,
+            message: op.stateReason,
+          }
         : null,
     })),
   };
@@ -388,15 +445,22 @@ export async function getPaymentAttempts({ auth, paymentId }) {
 
 export async function getPaymentSummary({ auth }) {
   const merchantId = auth.merchantId;
+
   const [total, byStatus] = await Promise.all([
     Payment.countDocuments({ merchantId }),
     Payment.aggregate([
       { $match: { merchantId } },
-      { $group: { _id: "$status", count: { $sum: 1 } } },
+      {
+        $group: {
+          _id: "$status",
+          count: { $sum: 1 },
+        },
+      },
     ]),
   ]);
 
   const statusCounts = {};
+
   for (const entry of byStatus) {
     statusCounts[entry._id] = entry.count;
   }
@@ -407,60 +471,64 @@ export async function getPaymentSummary({ auth }) {
 export async function capturePayment({
   auth,
   paymentId,
-  body,
+  body = {},
   idempotencyKey,
 }) {
-  const orchestratorService = await getOrchestrator(auth.config, auth.logger);
+  const payment = await Payment.findOne({
+    _id: paymentId,
+    merchantId: auth.merchantId,
+  }).lean();
 
-  return runFinancialTransaction(
-    async (session) => {
-      const payment = await Payment.findOne({
-        _id: paymentId,
-        merchantId: auth.merchantId,
-      }).session(session);
-      if (!payment) {
-        throw new AppError(404, "PAYMENT_NOT_FOUND", "Payment not found");
-      }
+  if (!payment) {
+    throw new AppError(
+      404,
+      "PAYMENT_NOT_FOUND",
+      "Payment not found",
+    );
+  }
 
-      if (payment.status !== PAYMENT_STATUS.AUTHORIZED) {
-        throw new AppError(
-          409,
-          "INVALID_PAYMENT_STATE",
-          "Only AUTHORIZED payments can be captured",
-          { status: payment.status },
-        );
-      }
+  if (payment.status !== PAYMENT_STATUS.AUTHORIZED) {
+    throw new AppError(
+      409,
+      "INVALID_PAYMENT_STATE",
+      "Only AUTHORIZED payments can be captured",
+      { status: payment.status },
+    );
+  }
 
-      const captureAmount = body.amountMinor
-        ? BigInt(body.amountMinor)
-        : payment.amountMinor;
-      if (captureAmount > payment.amountMinor) {
-        throw new AppError(
-          422,
-          "CAPTURE_EXCEEDS_AUTHORIZED",
-          "Capture amount cannot exceed authorized amount",
-        );
-      }
+  const captureAmount =
+    body.amountMinor == null
+      ? BigInt(payment.amountMinor)
+      : BigInt(body.amountMinor);
 
-      const result = await orchestratorService.initiateCapture({
-        auth,
-        paymentId,
-        idempotencyKey,
-        mode: "manual",
-      });
+  if (
+    captureAmount <= 0n ||
+    captureAmount > BigInt(payment.amountMinor)
+  ) {
+    throw new AppError(
+      422,
+      "INVALID_CAPTURE_AMOUNT",
+      "Capture amount must be greater than zero and cannot exceed the authorized amount",
+    );
+  }
 
-      return {
-        payment: result.payment,
-        providerOperationId: result.providerOperation._id,
-      };
-    },
-    {
-      reconcile: async () => {
-        const payment = await Payment.findById(paymentId).lean();
-        return payment ? { payment: toPaymentDto(payment) } : null;
-      },
-    },
+  const orchestratorService = await getOrchestrator(
+    auth.config,
+    auth.logger,
   );
+
+  const result = await orchestratorService.initiateCapture({
+    auth,
+    paymentId,
+    amountMinor: captureAmount.toString(),
+    idempotencyKey,
+    mode: "manual",
+  });
+
+  return {
+    payment: result.payment,
+    providerOperationId: result.providerOperation?._id ?? null,
+  };
 }
 
 export async function cancelPayment({ auth, paymentId, req }) {
@@ -488,6 +556,7 @@ export async function cancelPayment({ auth, paymentId, req }) {
           "Idempotency-Key was used with a different cancellation request",
         );
       }
+
       if (existingIdem.status === IDEMPOTENCY_STATE.IN_PROGRESS) {
         throw new AppError(
           409,
@@ -495,17 +564,33 @@ export async function cancelPayment({ auth, paymentId, req }) {
           "A request with this Idempotency-Key is already in progress",
         );
       }
+
       if (
         existingIdem.status === IDEMPOTENCY_STATE.COMPLETED &&
         existingIdem.paymentId
       ) {
-        const payment = await Payment.findById(existingIdem.paymentId)
+        const payment = await Payment.findById(
+          existingIdem.paymentId,
+        )
           .session(session)
           .lean();
-        if (payment && String(payment.merchantId) === String(merchantId)) {
-          return { payment: toPaymentDto(payment), idempotent: true };
+
+        if (
+          payment &&
+          String(payment.merchantId) === String(merchantId)
+        ) {
+          return {
+            payment: toPaymentDto(payment),
+            idempotent: true,
+          };
         }
       }
+
+      throw new AppError(
+        409,
+        "IDEMPOTENCY_UNAVAILABLE",
+        "This idempotency key cannot be reused for cancellation",
+      );
     }
 
     const [idempotency] = await IdempotencyRecord.create(
@@ -526,8 +611,13 @@ export async function cancelPayment({ auth, paymentId, req }) {
       _id: paymentId,
       merchantId,
     }).session(session);
+
     if (!payment) {
-      throw new AppError(404, "PAYMENT_NOT_FOUND", "Payment not found");
+      throw new AppError(
+        404,
+        "PAYMENT_NOT_FOUND",
+        "Payment not found",
+      );
     }
 
     if (!CANCELLABLE_STATUSES.includes(payment.status)) {
@@ -540,7 +630,11 @@ export async function cancelPayment({ auth, paymentId, req }) {
     }
 
     const fromStatus = payment.status;
-    assertTransition(fromStatus, PAYMENT_STATUS.CANCELLED);
+
+    assertTransition(
+      fromStatus,
+      PAYMENT_STATUS.CANCELLED,
+    );
 
     const cancelled = await Payment.findOneAndUpdate(
       {
@@ -556,8 +650,12 @@ export async function cancelPayment({ auth, paymentId, req }) {
         },
         $inc: { version: 1 },
       },
-      { returnDocument: "after", session },
+      {
+        returnDocument: "after",
+        session,
+      },
     );
+
     if (!cancelled) {
       throw new AppError(
         409,
@@ -614,6 +712,9 @@ export async function cancelPayment({ auth, paymentId, req }) {
       { session },
     );
 
-    return { payment: toPaymentDto(cancelled), idempotent: false };
+    return {
+      payment: toPaymentDto(cancelled),
+      idempotent: false,
+    };
   });
 }

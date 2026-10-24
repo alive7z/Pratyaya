@@ -336,7 +336,7 @@ export async function executeIntegrityCheck({
       metadata: { status: report.status, currency: currency ?? "ALL" },
       isDemo: auth.isDemo,
     },
-    { secret: config.auth.jwtSecret },
+    { secret: config?.auth?.jwtSecret },
   );
   return report;
 }

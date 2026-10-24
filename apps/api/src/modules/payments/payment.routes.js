@@ -1,3 +1,4 @@
+
 import { Router } from "express";
 import { PERMISSIONS, paymentCreateSchema } from "@pratyaya/shared";
 import { z } from "zod";
@@ -17,30 +18,53 @@ import {
 } from "./payment.controller.js";
 import { createRefundRouter } from "./refund.routes.js";
 
-const paymentIdSchema = z.object({
-  paymentId: z.string().regex(/^[0-9a-fA-F]{24}$/, "Invalid payment ID"),
-});
+const paymentIdSchema = z
+  .object({
+    paymentId: z
+      .string()
+      .regex(/^[0-9a-fA-F]{24}$/, "Invalid payment ID"),
+  })
+  .strict();
 
 const paymentListQuerySchema = z
   .object({
-    status: z.string().optional(),
-    from: z.string().datetime().optional(),
-    to: z.string().datetime().optional(),
-    limit: z.coerce.number().int().min(1).max(100).optional(),
+    status: z
+      .enum([
+        "CREATED",
+        "QUEUED",
+        "AUTHORIZING",
+        "AUTHORIZED",
+        "CAPTURING",
+        "CAPTURED",
+        "REFUND_PENDING",
+        "PARTIALLY_REFUNDED",
+        "REFUNDED",
+        "FAILED",
+        "CANCELLED",
+        "UNKNOWN",
+      ])
+      .optional(),
+    from: z.string().datetime({ offset: true }).optional(),
+    to: z.string().datetime({ offset: true }).optional(),
+    limit: z.coerce.number().int().min(1).max(100).default(20),
   })
-  .strict();
+  .strict()
+  .refine(
+    ({ from, to }) => !from || !to || new Date(from) <= new Date(to),
+    {
+      message: "from must be earlier than or equal to to",
+      path: ["to"],
+    },
+  );
 
 const captureSchema = z
   .object({
     amountMinor: z
       .string()
-      .regex(
-        /^(0|[1-9]\d*)$/,
-        "amountMinor must be a positive integer digit string",
-      )
+      .regex(/^[1-9]\d*$/, "Amount must be a positive integer")
       .refine(
-        (v) => BigInt(v) > 0n && BigInt(v) <= 1_000_000_000_000n,
-        "Amount out of range",
+        (value) => BigInt(value) <= 1_000_000_000_000n,
+        "Amount exceeds the maximum allowed value",
       )
       .optional(),
   })
@@ -50,6 +74,8 @@ export function createPaymentRouter({ config }) {
   const router = Router();
   const requireAuth = authenticate({ config });
 
+  router.use(createRefundRouter({ config }));
+
   router.get(
     "/summary",
     requireAuth,
@@ -57,26 +83,21 @@ export function createPaymentRouter({ config }) {
     summary,
   );
 
-  router.get(
-    "/",
-    requireAuth,
-    authorize(PERMISSIONS.PAYMENTS_READ),
-    validate({ query: paymentListQuerySchema }),
-    list,
-  );
-
-  router.post(
-    "/",
-    requireAuth,
-    authorize(PERMISSIONS.PAYMENTS_CREATE),
-    requireCsrf,
-    validate({ body: paymentCreateSchema }),
-    create,
-  );
-
-  // Register the literal /refunds and nested refund routes before /:paymentId
-  // so Express cannot interpret "refunds" as a payment ID.
-  router.use(createRefundRouter({ config }));
+  router
+    .route("/")
+    .get(
+      requireAuth,
+      authorize(PERMISSIONS.PAYMENTS_READ),
+      validate({ query: paymentListQuerySchema }),
+      list,
+    )
+    .post(
+      requireAuth,
+      authorize(PERMISSIONS.PAYMENTS_CREATE),
+      requireCsrf,
+      validate({ body: paymentCreateSchema }),
+      create,
+    );
 
   router.get(
     "/:paymentId",
@@ -107,7 +128,10 @@ export function createPaymentRouter({ config }) {
     requireAuth,
     authorize(PERMISSIONS.PAYMENTS_CREATE),
     requireCsrf,
-    validate({ params: paymentIdSchema, body: captureSchema }),
+    validate({
+      params: paymentIdSchema,
+      body: captureSchema,
+    }),
     capture,
   );
 

@@ -1,16 +1,19 @@
+
+import { randomUUID } from "node:crypto";
 import { loadConfig } from "../config/env.js";
 import { createLogger } from "../config/logger.js";
 import { connectMongo, disconnectMongo, pingMongo } from "./mongoose.js";
 
 const config = loadConfig();
+
 const logger = createLogger({
   level: config.logLevel,
   service: "pratyaya-provider-db-check",
 });
 
 function sanitize(message) {
-  return String(message).replace(
-    /mongodb(?:\+srv)?:\/\/[^\s]+/gi,
+  return String(message ?? "").replace(
+    /mongodb(?:\+srv)?:\/\/[^\s"'<>]+/gi,
     "[REDACTED_MONGODB_URI]",
   );
 }
@@ -19,60 +22,107 @@ async function verifyTransactionCapability(connection) {
   const collection = connection.db.collection(
     "_pratyaya_provider_connection_checks",
   );
+
   const session = await connection.startSession();
-  const marker = `provider-check-${Date.now()}`;
+  const marker = `provider-check-${randomUUID()}`;
 
   try {
-    session.startTransaction();
-    await collection.insertOne({ marker, createdAt: new Date() }, { session });
-    await session.abortTransaction();
+    await session.withTransaction(async () => {
+      await collection.insertOne(
+        {
+          marker,
+          createdAt: new Date(),
+        },
+        { session },
+      );
 
-    const leftover = await collection.countDocuments({ marker });
-    if (leftover !== 0) {
-      throw new Error("Transaction rollback did not remove the check document");
+      throw new TransactionRollbackSignal();
+    });
+  } catch (error) {
+    if (!(error instanceof TransactionRollbackSignal)) {
+      throw error;
     }
   } finally {
     await session.endSession();
   }
+
+  const leftover = await collection.countDocuments({ marker });
+
+  if (leftover !== 0) {
+    throw new Error("Transaction rollback verification failed");
+  }
+}
+
+class TransactionRollbackSignal extends Error {
+  constructor() {
+    super("Intentional transaction rollback");
+    this.name = "TransactionRollbackSignal";
+  }
 }
 
 async function main() {
-  const connection = await connectMongo(config.mongodb, logger);
-  await pingMongo(connection);
+  let connected = false;
 
-  const hello = await connection.db.admin().command({ hello: 1 });
-  if (!hello.setName) {
-    throw new Error(
-      "Provider MongoDB is reachable but does not report a replica-set topology; ACID transactions require an Atlas replica set",
+  try {
+    const connection = await connectMongo(config.mongodb, logger);
+    connected = true;
+
+    await pingMongo(connection);
+
+    const hello = await connection.db.admin().command({ hello: 1 });
+
+    if (!hello.setName) {
+      throw new Error(
+        "MongoDB replica set is required for multi-document transactions",
+      );
+    }
+
+    if (!hello.isWritablePrimary) {
+      throw new Error(
+        "MongoDB connection is not connected to a writable primary",
+      );
+    }
+
+    await verifyTransactionCapability(connection);
+
+    logger.info(
+      {
+        event: "provider.mongodb.check.succeeded",
+        replicaSet: hello.setName,
+        writablePrimary: true,
+        transactionCapabilityVerified: true,
+        database: connection.db.databaseName,
+      },
+      "Provider MongoDB connectivity and transaction rollback verified",
     );
-  }
-
-  await verifyTransactionCapability(connection);
-
-  logger.info(
-    {
-      event: "provider.mongodb.check.succeeded",
-      replicaSet: hello.setName,
-      writablePrimary: Boolean(hello.isWritablePrimary),
-      transactionCapabilityVerified: true,
-      database: connection.db.databaseName,
-    },
-    "Provider MongoDB Atlas connectivity and transaction rollback verified",
-  );
-}
-
-main()
-  .catch((error) => {
+  } catch (error) {
     logger.error(
       {
         event: "provider.mongodb.check.failed",
-        errorName: error.name,
-        message: sanitize(error.message),
+        errorName: error?.name ?? "Error",
+        message: sanitize(error?.message),
       },
-      "Provider MongoDB Atlas connectivity check failed",
+      "Provider MongoDB connectivity check failed",
     );
+
     process.exitCode = 1;
-  })
-  .finally(async () => {
-    await disconnectMongo();
-  });
+  } finally {
+    if (connected) {
+      try {
+        await disconnectMongo();
+      } catch (error) {
+        logger.error(
+          {
+            event: "provider.mongodb.disconnect.failed",
+            message: sanitize(error?.message),
+          },
+          "Failed to disconnect from MongoDB",
+        );
+
+        process.exitCode = 1;
+      }
+    }
+  }
+}
+
+await main();

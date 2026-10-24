@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Pratyaya \u2014 a synthetic payment reliability and authorization lab",
+  "description": "Pratyaya — a synthetic payment reliability and authorization lab",
   "engines": {
     "node": ">=24.0.0",
     "npm": ">=11.0.0"
@@ -50,5 +50,8 @@
     "globals": "^17.13.0",
     "jsdom": "^29.1.1",
     "prettier": "^3.9.10"
+  },
+  "dependencies": {
+    "cline": "^3.0.73"
   }
 }

@@ -1,14 +1,21 @@
-import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+
+import { useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Clock3,
+  Play,
+  RefreshCw,
+  XCircle,
+  Zap,
+  Bug,
+} from "lucide-react";
 import { useAuth } from "../../app/AuthContext.jsx";
 import { apiClient } from "../../lib/apiClient.js";
-import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardContent,
-} from "../../components/ui/Card.jsx";
+import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/Card.jsx";
 import { Button } from "../../components/ui/Button.jsx";
+import { Input } from "../../components/ui/Input.jsx";
 import {
   Select,
   SelectContent,
@@ -16,363 +23,420 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../../components/ui/Select.jsx";
-import {
-  Alert,
-  AlertDescription,
-  AlertTitle,
-} from "../../components/ui/Alert.jsx";
-import {
-  Loader2,
-  Play,
-  Bug,
-  Zap,
-  Clock,
-  AlertTriangle,
-  CheckCircle,
-  XCircle,
-} from "lucide-react";
 
-const FAULT_SCENARIOS = [
+const SCENARIOS = [
   {
     id: "timeout",
     name: "Provider Timeout",
-    description:
-      "Provider processes request but response is delayed beyond client timeout",
-    icon: Clock,
-    color: "text-yellow-600",
-    bgColor: "bg-yellow-50",
-    faultConfig: {
-      enabled: true,
-      rules: [{ type: "timeout", enabled: true, delayMs: 30000 }],
-    },
+    description: "Simulate an uncertain provider response.",
+    icon: Clock3,
+    rules: [{ type: "timeout", enabled: true, delayMs: 30000 }],
   },
   {
     id: "decline",
     name: "Provider Decline",
-    description: "Provider explicitly rejects the authorization or capture",
+    description: "Simulate a rejected payment authorization.",
     icon: XCircle,
-    color: "text-red-600",
-    bgColor: "bg-red-50",
-    faultConfig: {
+    rules: [{
+      type: "decline",
       enabled: true,
-      rules: [
-        {
-          type: "decline",
-          enabled: true,
-          code: "PROVIDER_DECLINED",
-          message: "Simulated decline",
-        },
-      ],
-    },
+      code: "PROVIDER_DECLINED",
+      message: "Simulated decline",
+    }],
   },
   {
     id: "latency",
     name: "High Latency",
-    description: "Artificial latency added to provider operations",
+    description: "Introduce artificial provider processing delay.",
     icon: Zap,
-    color: "text-purple-600",
-    bgColor: "bg-purple-50",
-    faultConfig: {
-      enabled: true,
-      rules: [{ type: "latency", enabled: true, delayMs: 5000 }],
-    },
+    rules: [{ type: "latency", enabled: true, delayMs: 5000 }],
   },
   {
     id: "error",
     name: "Provider Error",
-    description: "Provider returns a 5xx error response",
+    description: "Simulate an internal provider failure.",
     icon: Bug,
-    color: "text-orange-600",
-    bgColor: "bg-orange-50",
-    faultConfig: {
+    rules: [{
+      type: "error",
       enabled: true,
-      rules: [
-        {
-          type: "error",
-          enabled: true,
-          statusCode: 500,
-          code: "INTERNAL_ERROR",
-          message: "Simulated provider error",
-        },
-      ],
-    },
+      statusCode: 500,
+      code: "INTERNAL_ERROR",
+      message: "Simulated provider error",
+    }],
   },
 ];
+
+const TERMINAL_STATUSES = new Set([
+  "AUTHORIZED",
+  "CAPTURED",
+  "FAILED",
+  "CANCELLED",
+  "UNKNOWN",
+]);
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function getPayload(response) {
+  return response?.data?.data ?? response?.data ?? {};
+}
+
+function getPaymentId(response) {
+  const data = getPayload(response);
+  return data.payment?.id ?? data.paymentId ?? data.id ?? null;
+}
+
+function getPayment(response) {
+  const data = getPayload(response);
+  return data.payment ?? data;
+}
 
 export function ReliabilityLab() {
   const { auth } = useAuth();
   const queryClient = useQueryClient();
-  const [selectedScenario, setSelectedScenario] = useState(FAULT_SCENARIOS[0]);
-  const [testRunning, setTestRunning] = useState(false);
-  const [testResult, setTestResult] = useState(null);
-  const [testLogs, setTestLogs] = useState([]);
-  const [paymentId, setPaymentId] = useState("");
 
-  const { data: faultsData } = useQuery({
-    queryKey: ["provider-faults"],
+  const [scenarioId, setScenarioId] = useState("timeout");
+  const [paymentId, setPaymentId] = useState("");
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState(null);
+  const [logs, setLogs] = useState([]);
+  const runningRef = useRef(false);
+
+  const scenario = SCENARIOS.find((item) => item.id === scenarioId);
+
+  const faultsQuery = useQuery({
+    queryKey: ["provider-faults", auth?.merchantId],
     queryFn: () => apiClient.get("/api/v1/sandbox/faults"),
-    enabled: !!auth,
+    enabled: Boolean(auth),
   });
 
-  const currentFaults = faultsData?.data?.faults || {
+  const faults = getPayload(faultsQuery.data).faults ?? {
     enabled: false,
     rules: [],
   };
 
-  const setFaultsMutation = useMutation({
-    mutationFn: (config) => apiClient.post("/api/v1/sandbox/faults", config),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["provider-faults"] });
-    },
-  });
+  const log = (message, type = "info") => {
+    setLogs((current) => [
+      ...current,
+      {
+        time: new Date().toLocaleTimeString(),
+        message,
+        type,
+      },
+    ]);
+  };
 
-  const clearFaultsMutation = useMutation({
-    mutationFn: () => apiClient.delete("/api/v1/sandbox/faults"),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["provider-faults"] });
-    },
-  });
+  const clearFaults = async () => {
+    await apiClient.delete("/api/v1/sandbox/faults");
+    await queryClient.invalidateQueries({
+      queryKey: ["provider-faults"],
+    });
+  };
 
   const runTest = async () => {
-    if (!paymentId) {
-      alert("Please create a payment first or enter a payment ID");
-      return;
-    }
+    if (!auth || runningRef.current) return;
 
-    setTestRunning(true);
-    setTestResult(null);
-    setTestLogs([]);
+    runningRef.current = true;
+    setRunning(true);
+    setResult(null);
+    setLogs([]);
 
-    const addLog = (message, type = "info") => {
-      setTestLogs((prev) => [
-        ...prev,
-        { time: new Date().toLocaleTimeString(), message, type },
-      ]);
-    };
+    let faultApplied = false;
 
     try {
-      addLog(`Setting up fault: ${selectedScenario.name}`);
-      await setFaultsMutation.mutateAsync(selectedScenario.faultConfig);
+      if (faults.enabled) {
+        throw new Error(
+          "Clear the existing fault configuration before running a test.",
+        );
+      }
 
-      addLog("Creating test payment...");
-      const paymentRes = await apiClient.post(
-        "/api/v1/payments",
-        {
-          amountMinor: "10000",
-          currency: "USD",
-          description: `Reliability test: ${selectedScenario.name}`,
-        },
-        {
-          headers: { "Idempotency-Key": `test-${Date.now()}` },
-        },
-      );
-      const createdPayment = paymentRes.data?.payment || paymentRes.data;
-      const testPaymentId = createdPayment?.id;
-      addLog(`Created payment: ${testPaymentId}`);
+      log(`Applying ${scenario.name} scenario`);
 
-      addLog("Waiting for worker to process authorization...");
-      await new Promise((r) => setTimeout(r, 3000));
+      await apiClient.post("/api/v1/sandbox/faults", {
+        enabled: true,
+        rules: scenario.rules,
+      });
 
-      addLog("Checking payment status...");
-      const statusRes = await apiClient.get(
-        `/api/v1/payments/${testPaymentId}`,
-      );
-      const fetchedPayment = statusRes.data?.payment || statusRes.data;
-      const status = fetchedPayment?.status;
-      addLog(`Payment status: ${status}`);
+      faultApplied = true;
 
-      addLog("Clearing fault configuration...");
-      await clearFaultsMutation.mutateAsync();
+      const existingId = paymentId.trim();
+      let targetId = existingId;
 
-      if (selectedScenario.id === "timeout" && status === "UNKNOWN") {
-        setTestResult({
-          success: true,
-          message: "Correctly entered UNKNOWN state after timeout",
+      if (!targetId) {
+        log("Creating synthetic test payment");
+
+        const response = await apiClient.post(
+          "/api/v1/payments",
+          {
+            customerReference: `RELIABILITY-${scenario.id.toUpperCase()}`,
+            merchantReference: `LAB-${crypto.randomUUID()}`,
+            amountMinor: "10000",
+            currency: "USD",
+            description: `Reliability test: ${scenario.name}`,
+          },
+          {
+            headers: {
+              "Idempotency-Key": `lab_${crypto.randomUUID()}`,
+            },
+          },
+        );
+
+        targetId = getPaymentId(response);
+
+        if (!targetId) {
+          throw new Error(
+            "Payment creation returned no payment ID. Check payment history before retrying.",
+          );
+        }
+
+        setPaymentId(targetId);
+      } else {
+        log(`Using payment ${targetId}`);
+      }
+
+      log(`Payment ID: ${targetId}`);
+      log("Checking payment state transitions");
+
+      let latestStatus = null;
+      let completed = false;
+
+      for (let attempt = 0; attempt < 12; attempt++) {
+        const response = await apiClient.get(
+          `/api/v1/payments/${encodeURIComponent(targetId)}`,
+        );
+
+        const payment = getPayment(response);
+        const status = payment?.status ?? null;
+
+        if (status !== latestStatus) {
+          latestStatus = status;
+          log(`Payment status: ${status ?? "Unavailable"}`);
+        }
+
+        if (TERMINAL_STATUSES.has(status)) {
+          completed = true;
+          break;
+        }
+
+        if (attempt < 11) await sleep(2500);
+      }
+
+      const expected = {
+        timeout: ["UNKNOWN"],
+        decline: ["FAILED"],
+        latency: ["AUTHORIZED", "CAPTURED"],
+        error: ["FAILED", "UNKNOWN"],
+      }[scenario.id];
+
+      if (!completed) {
+        setResult({
+          status: "inconclusive",
+          message:
+            "The payment did not reach an expected observable state within the test window.",
         });
-      } else if (selectedScenario.id === "decline" && status === "FAILED") {
-        setTestResult({
-          success: true,
-          message: "Correctly failed after provider decline",
-        });
-      } else if (selectedScenario.id === "latency" && status === "AUTHORIZED") {
-        setTestResult({
-          success: true,
-          message: "Completed successfully despite latency",
-        });
-      } else if (selectedScenario.id === "error" && status === "FAILED") {
-        setTestResult({
-          success: true,
-          message: "Correctly failed after provider error",
+      } else if (expected.includes(latestStatus)) {
+        setResult({
+          status: "passed",
+          message: `Observed expected payment status: ${latestStatus}.`,
         });
       } else {
-        setTestResult({
-          success: false,
-          message: `Unexpected status: ${status}`,
+        setResult({
+          status: "failed",
+          message: `Expected ${expected.join(" or ")}, received ${latestStatus}.`,
         });
       }
+
+      log("Scenario observation completed");
     } catch (error) {
-      addLog(`Error: ${error.message}`, "error");
-      setTestResult({ success: false, message: error.message });
+      log(error?.message ?? "Test failed", "error");
+
+      setResult({
+        status: "failed",
+        message: error?.message ?? "Unable to complete the test.",
+      });
     } finally {
-      setTestRunning(false);
+      if (faultApplied) {
+        try {
+          await clearFaults();
+          log("Fault configuration cleared");
+        } catch (error) {
+          log(`Fault cleanup failed: ${error.message}`, "error");
+          setResult({
+            status: "failed",
+            message:
+              "Fault cleanup failed. Clear active faults before running another test.",
+          });
+        }
+      }
+
+      runningRef.current = false;
+      setRunning(false);
     }
+  };
+
+  const resultStyle = {
+    passed:
+      "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300",
+    failed:
+      "border-red-200 bg-red-50 text-red-800 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300",
+    inconclusive:
+      "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300",
   };
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Reliability Lab</h1>
-          <p className="text-gray-500 mt-1">
-            Test fault scenarios and observe system recovery behavior
-          </p>
-        </div>
-        {currentFaults.enabled && (
-          <Alert className="border-amber-200 bg-amber-50">
-            <AlertTriangle className="h-4 w-4" />
-            <AlertTitle>Fault Active</AlertTitle>
-            <AlertDescription>
-              {currentFaults.rules.map((r) => r.type).join(", ")} fault
-              injection is enabled
-            </AlertDescription>
-          </Alert>
-        )}
-      </div>
+      <header>
+        <h1 className="text-2xl font-bold tracking-tight">
+          Reliability Lab
+        </h1>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+          Inject synthetic provider failures and observe payment recovery.
+        </p>
+      </header>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        {FAULT_SCENARIOS.map((scenario) => (
-          <Card
-            key={scenario.id}
-            className={`border-2 transition-colors ${selectedScenario.id === scenario.id ? "border-blue-500" : "border-gray-200"} ${scenario.bgColor}`}
-            onClick={() => setSelectedScenario(scenario)}
-          >
-            <CardContent className="pt-6">
-              <div className="flex items-start gap-3">
-                <div
-                  className={`p-2 rounded-lg ${scenario.bgColor.replace("bg-", "bg-").replace("50", "100")}`}
-                >
-                  <scenario.icon className={`h-5 w-5 ${scenario.color}`} />
-                </div>
-                <div className="flex-1">
-                  <h3 className="font-medium">{scenario.name}</h3>
-                  <p className="text-sm text-gray-500 mt-1">
-                    {scenario.description}
-                  </p>
-                </div>
-                {selectedScenario.id === scenario.id && (
-                  <CheckCircle className="h-5 w-5 text-blue-500" />
+      {faults.enabled && (
+        <div
+          role="alert"
+          className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/30"
+        >
+          <AlertTriangle className="h-5 w-5 shrink-0 text-amber-600" />
+          <div>
+            <p className="text-sm font-semibold">Fault injection active</p>
+            <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">
+              {(faults.rules ?? []).map((rule) => rule.type).join(", ")}
+            </p>
+          </div>
+        </div>
+      )}
+
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {SCENARIOS.map((item) => {
+          const Icon = item.icon;
+          const selected = scenarioId === item.id;
+
+          return (
+            <button
+              key={item.id}
+              type="button"
+              disabled={running}
+              aria-pressed={selected}
+              onClick={() => setScenarioId(item.id)}
+              className={`rounded-xl border p-4 text-left transition-colors ${
+                selected
+                  ? "border-blue-500 bg-blue-50/60 dark:bg-blue-950/30"
+                  : "border-slate-200 bg-white hover:border-blue-300 dark:border-slate-800 dark:bg-slate-950"
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <Icon
+                  className="h-5 w-5 text-blue-600 dark:text-blue-400"
+                  aria-hidden="true"
+                />
+                {selected && (
+                  <CheckCircle2 className="h-4 w-4 text-blue-600" />
                 )}
               </div>
-            </CardContent>
-          </Card>
-        ))}
+              <p className="mt-3 text-sm font-semibold">{item.name}</p>
+              <p className="mt-1 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+                {item.description}
+              </p>
+            </button>
+          );
+        })}
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader>
             <CardTitle>Test Configuration</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
-              <label className="block text-sm font-medium mb-2">
-                Payment ID (optional - will create new if empty)
+              <label
+                htmlFor="test-payment-id"
+                className="mb-2 block text-sm font-medium"
+              >
+                Payment ID
               </label>
-              <input
-                type="text"
+              <Input
+                id="test-payment-id"
                 value={paymentId}
-                onChange={(e) => setPaymentId(e.target.value)}
-                placeholder="Leave empty to create new payment"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                disabled={running}
+                onChange={(event) => setPaymentId(event.target.value)}
+                placeholder="Leave empty to create a test payment"
               />
             </div>
+
             <div>
-              <label className="block text-sm font-medium mb-2">
-                Selected Scenario
+              <label className="mb-2 block text-sm font-medium">
+                Fault Scenario
               </label>
               <Select
-                value={selectedScenario.id}
-                onValueChange={setSelectedScenario}
+                value={scenarioId}
+                disabled={running}
+                onValueChange={setScenarioId}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Select scenario" />
                 </SelectTrigger>
                 <SelectContent>
-                  {FAULT_SCENARIOS.map((s) => (
-                    <SelectItem key={s.id} value={s.id}>
-                      {s.name}
+                  {SCENARIOS.map((item) => (
+                    <SelectItem key={item.id} value={item.id}>
+                      {item.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
+
             <Button
-              onClick={runTest}
-              disabled={testRunning}
               className="w-full"
-              size="lg"
+              disabled={!auth || running || faults.enabled}
+              onClick={runTest}
             >
-              {testRunning ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                  Running Test...
-                </>
+              {running ? (
+                <RefreshCw className="h-4 w-4 animate-spin" />
               ) : (
-                <>
-                  <Play className="h-4 w-4 mr-2" />
-                  Run Test
-                </>
+                <Play className="h-4 w-4" />
               )}
+              {running ? "Running Test..." : "Run Test"}
             </Button>
+
+            <p className="text-xs leading-relaxed text-slate-500">
+              This test observes payment status only. It does not
+              independently verify ledger consistency or recovery behavior.
+            </p>
           </CardContent>
         </Card>
-
-        {testResult && (
-          <Card
-            className={
-              testResult.success
-                ? "border-green-200 bg-green-50"
-                : "border-red-200 bg-red-50"
-            }
-          >
-            <CardHeader>
-              <CardTitle
-                className={
-                  testResult.success ? "text-green-800" : "text-red-800"
-                }
-              >
-                {testResult.success ? "Test Passed" : "Test Failed"}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p
-                className={
-                  testResult.success ? "text-green-700" : "text-red-700"
-                }
-              >
-                {testResult.message}
-              </p>
-            </CardContent>
-          </Card>
-        )}
 
         <Card>
           <CardHeader>
             <CardTitle>Test Logs</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="h-64 overflow-y-auto bg-gray-900 rounded p-4 font-mono text-xs text-green-400">
-              {testLogs.length === 0 ? (
-                <p className="text-gray-500">Run a test to see logs</p>
+            <div
+              role="log"
+              aria-live="polite"
+              className="h-72 space-y-2 overflow-y-auto rounded-lg bg-slate-950 p-4 font-mono text-xs"
+            >
+              {logs.length === 0 ? (
+                <p className="text-slate-500">
+                  Run a test to view activity.
+                </p>
               ) : (
-                testLogs.map((log, index) => (
-                  <div
+                logs.map((entry, index) => (
+                  <p
                     key={index}
-                    className={`mb-1 ${log.type === "error" ? "text-red-400" : ""}`}
+                    className={
+                      entry.type === "error"
+                        ? "text-red-400"
+                        : "text-emerald-400"
+                    }
                   >
-                    <span className="text-gray-500">[{log.time}]</span>{" "}
-                    <span>{log.message}</span>
-                  </div>
+                    <span className="text-slate-500">
+                      [{entry.time}]
+                    </span>{" "}
+                    {entry.message}
+                  </p>
                 ))
               )}
             </div>
@@ -380,41 +444,30 @@ export function ReliabilityLab() {
         </Card>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Expected vs Actual Behavior</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 md:grid-cols-2">
-            <div>
-              <h4 className="font-medium text-gray-900 mb-2">
-                Scenario: {selectedScenario.name}
-              </h4>
-              <ul className="space-y-2 text-sm text-gray-600">
-                <li>• Payment created and queued</li>
-                <li>• Worker picks up authorization job</li>
-                <li>• Provider call made with fault injected</li>
-                <li>• System handles fault appropriately</li>
-                <li>• Payment enters correct state (UNKNOWN/FAILED)</li>
-                <li>• No duplicate financial effects</li>
-                <li>• Reconciliation can resolve UNKNOWN</li>
-              </ul>
-            </div>
-            <div>
-              <h4 className="font-medium text-gray-900 mb-2">
-                Key Recovery Behaviors
-              </h4>
-              <ul className="space-y-2 text-sm text-gray-600">
-                <li>• Original provider operation ID preserved</li>
-                <li>• No new operation created on retry</li>
-                <li>• Reconciliation queries provider with same ID</li>
-                <li>• Ledger posted exactly once on confirmation</li>
-                <li>• Idempotency prevents duplicate journals</li>
-              </ul>
-            </div>
+      {result && (
+        <div
+          role="status"
+          className={`rounded-xl border p-5 ${resultStyle[result.status]}`}
+        >
+          <div className="flex items-center gap-2">
+            {result.status === "passed" ? (
+              <CheckCircle2 className="h-5 w-5" />
+            ) : (
+              <AlertTriangle className="h-5 w-5" />
+            )}
+            <h2 className="font-semibold">
+              {result.status === "passed"
+                ? "Expected Status Observed"
+                : result.status === "failed"
+                  ? "Test Failed"
+                  : "Test Inconclusive"}
+            </h2>
           </div>
-        </CardContent>
-      </Card>
+          <p className="mt-2 text-sm">{result.message}</p>
+        </div>
+      )}
     </div>
   );
 }
+
+export default ReliabilityLab;

@@ -1,4 +1,8 @@
+
 import mongoose from "mongoose";
+
+const PROVIDER_IDS = ["alpha", "beta", "gamma"];
+const CURRENCIES = ["USD", "INR"];
 
 const PROVIDER_OPERATION_TYPES = Object.freeze({
   AUTHORIZATION: "AUTHORIZATION",
@@ -19,84 +23,152 @@ const providerOperationSchema = new mongoose.Schema(
   {
     providerId: {
       type: String,
-      enum: ["alpha", "beta", "gamma"],
+      enum: PROVIDER_IDS,
       required: true,
-      index: true,
     },
+
     operationId: {
       type: String,
       required: true,
-      unique: true,
-      index: true,
+      trim: true,
       maxlength: 64,
+      immutable: true,
     },
+
     type: {
       type: String,
       enum: Object.values(PROVIDER_OPERATION_TYPES),
       required: true,
-      index: true,
+      immutable: true,
     },
+
     clientOperationId: {
       type: String,
       required: true,
-      index: true,
       maxlength: 64,
+      immutable: true,
     },
+
     merchantId: {
       type: String,
       required: true,
-      index: true,
       maxlength: 64,
+      immutable: true,
     },
+
     amountMinor: {
       type: mongoose.Schema.Types.BigInt,
       required: true,
       min: 1n,
+      immutable: true,
     },
+
     currency: {
       type: String,
-      enum: ["USD", "INR"],
+      enum: CURRENCIES,
       required: true,
+      immutable: true,
     },
+
     status: {
       type: String,
       enum: Object.values(PROVIDER_OPERATION_STATUS),
-      required: true,
       default: PROVIDER_OPERATION_STATUS.RECEIVED,
-      index: true,
+      required: true,
     },
-    statusReason: { type: String, maxlength: 240 },
-    requestPayload: { type: mongoose.Schema.Types.Mixed, required: true },
-    responsePayload: { type: mongoose.Schema.Types.Mixed },
-    providerReference: { type: String, maxlength: 100 },
+
+    statusReason: {
+      type: String,
+      maxlength: 240,
+    },
+
+    requestPayload: {
+      type: mongoose.Schema.Types.Mixed,
+      required: true,
+      immutable: true,
+    },
+
+    responsePayload: {
+      type: mongoose.Schema.Types.Mixed,
+    },
+
+    providerReference: {
+      type: String,
+      maxlength: 100,
+    },
+
     idempotencyKey: {
       type: String,
       required: true,
-      index: true,
       maxlength: 255,
+      immutable: true,
     },
+
     requestFingerprint: {
       type: String,
       required: true,
+      minlength: 64,
+      maxlength: 64,
+      match: /^[a-fA-F0-9]{64}$/,
+      immutable: true,
+    },
+
+    faultInjected: {
+      type: String,
       maxlength: 64,
     },
-    faultInjected: { type: String, maxlength: 64 },
-    processingStartedAt: { type: Date },
-    processingCompletedAt: { type: Date },
-    isDemo: { type: Boolean, default: false, index: true },
+
+    processingStartedAt: Date,
+    processingCompletedAt: Date,
+
+    isDemo: {
+      type: Boolean,
+      default: false,
+    },
   },
-  { timestamps: true, versionKey: false },
+  {
+    timestamps: true,
+    versionKey: false,
+    strict: true,
+    collection: "mockprovideroperations",
+  },
 );
 
-providerOperationSchema.index({ merchantId: 1, createdAt: -1 });
-providerOperationSchema.index({ clientOperationId: 1, type: 1 });
+providerOperationSchema.index(
+  { operationId: 1 },
+  { unique: true, name: "operation_id_unique" },
+);
+
 providerOperationSchema.index(
   { providerId: 1, type: 1, idempotencyKey: 1 },
-  { unique: true },
+  { unique: true, name: "provider_type_idempotency_unique" },
+);
+
+providerOperationSchema.index(
+  { merchantId: 1, createdAt: -1 },
+  { name: "merchant_operations_recent" },
+);
+
+providerOperationSchema.index(
+  { clientOperationId: 1, type: 1 },
+  { name: "client_operation_type" },
+);
+
+providerOperationSchema.index(
+  { providerId: 1, status: 1, createdAt: -1 },
+  { name: "provider_status_recent" },
+);
+
+providerOperationSchema.index(
+  { isDemo: 1, createdAt: -1 },
+  { name: "demo_operations_recent" },
 );
 
 export const ProviderOperation =
   mongoose.models.ProviderOperation ??
   mongoose.model("ProviderOperation", providerOperationSchema);
 
-export { PROVIDER_OPERATION_TYPES, PROVIDER_OPERATION_STATUS };
+export {
+  PROVIDER_OPERATION_TYPES,
+  PROVIDER_OPERATION_STATUS,
+};

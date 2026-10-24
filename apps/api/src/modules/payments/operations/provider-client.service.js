@@ -1,28 +1,74 @@
-import { createHmac } from "node:crypto";
-import { randomUUID } from "node:crypto";
+
+import { createHmac, randomUUID } from "node:crypto";
 import { AppError } from "../../../lib/errors.js";
 
 const DEFAULT_TIMEOUT_MS = 15000;
 const MAX_RETRIES = 3;
 const BASE_RETRY_DELAY_MS = 500;
 
+const delay = (ms) =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
 function createProviderClient({
   baseUrl,
   hmacSecret,
-  _logger,
+  providerId = "alpha",
+  logger,
   fetchFn = fetch,
 }) {
-  function signPayload(bodyText, timestamp) {
-    const message = `${timestamp}.${bodyText}`;
-    return createHmac("sha256", hmacSecret).update(message).digest("hex");
+  const normalizedBaseUrl = baseUrl.replace(/\/+$/, "");
+
+  if (!["http:", "https:"].includes(new URL(normalizedBaseUrl).protocol)) {
+    throw new Error("Provider URL must use HTTP or HTTPS");
   }
 
-  function buildHeaders(bodyText, idempotencyKey) {
+  if (typeof hmacSecret !== "string" || hmacSecret.length < 32) {
+    throw new Error("Provider HMAC secret must contain at least 32 characters");
+  }
+
+  function resolveUrl(path, requestedProviderId) {
+    const selectedProvider = requestedProviderId ?? providerId;
+
+    if (!["alpha", "beta", "gamma"].includes(selectedProvider)) {
+      throw new AppError(
+        400,
+        "INVALID_PROVIDER",
+        "Invalid provider identifier",
+      );
+    }
+
+    const base = new URL(normalizedBaseUrl);
+    const pathname = base.pathname.replace(/\/+$/, "");
+
+    let prefix;
+
+    if (/\/provider\/(alpha|beta|gamma)$/.test(pathname)) {
+      prefix = pathname.replace(
+        /\/provider\/(alpha|beta|gamma)$/,
+        `/provider/${selectedProvider}`,
+      );
+    } else if (pathname.endsWith("/provider")) {
+      prefix = `${pathname}/${selectedProvider}`;
+    } else {
+      prefix = `${pathname}/provider/${selectedProvider}`;
+    }
+
+    return new URL(`${prefix}${path}`, base.origin).toString();
+  }
+
+  function buildHeaders(bodyText, idempotencyKey, selectedProviderId) {
     const timestamp = Math.floor(Date.now() / 1000).toString();
-    const signature = signPayload(bodyText, timestamp);
+
+    const signature = createHmac("sha256", hmacSecret)
+      .update(timestamp)
+      .update(".")
+      .update(bodyText)
+      .digest("hex");
+
     return {
       "Content-Type": "application/json",
       "X-Request-ID": randomUUID(),
+      "X-Provider-ID": selectedProviderId,
       "X-Timestamp": timestamp,
       "X-Signature": signature,
       "Idempotency-Key": idempotencyKey,
@@ -34,29 +80,45 @@ function createProviderClient({
     path,
     payload,
     idempotencyKey,
+    requestedProviderId,
     timeoutMs = DEFAULT_TIMEOUT_MS,
     retries = MAX_RETRIES,
   }) {
+    const selectedProviderId = requestedProviderId ?? providerId;
+    const url = resolveUrl(path, selectedProviderId);
+    const bodyText = method === "GET" ? "" : JSON.stringify(payload);
+
+    if (!idempotencyKey || typeof idempotencyKey !== "string") {
+      throw new AppError(
+        400,
+        "IDEMPOTENCY_KEY_REQUIRED",
+        "A valid idempotency key is required",
+      );
+    }
+
     let lastError;
-    const url = `${baseUrl}${path}`;
 
     for (let attempt = 0; attempt <= retries; attempt++) {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
       try {
-        const bodyText = method === "GET" ? "" : JSON.stringify(payload);
         const response = await fetchFn(url, {
           method,
-          headers: buildHeaders(bodyText, idempotencyKey),
+          headers: buildHeaders(
+            bodyText,
+            idempotencyKey,
+            selectedProviderId,
+          ),
           body: method === "GET" ? undefined : bodyText,
           signal: controller.signal,
+          redirect: "manual",
         });
 
-        clearTimeout(timeoutId);
-
         const responseText = await response.text();
+
         let responseData;
+
         try {
           responseData = responseText ? JSON.parse(responseText) : {};
         } catch {
@@ -70,69 +132,92 @@ function createProviderClient({
         if (!response.ok) {
           const error = new AppError(
             response.status,
-            responseData.error?.code ?? "PROVIDER_ERROR",
-            responseData.error?.message ?? "Provider request failed",
-            responseData.error?.details,
+            responseData?.error?.code ?? "PROVIDER_ERROR",
+            responseData?.error?.message ?? "Provider request failed",
+            responseData?.error?.details,
           );
-          if (
-            response.status >= 500 &&
-            response.status < 600 &&
-            attempt < retries
-          ) {
+
+          if (response.status >= 500 && attempt < retries) {
             lastError = error;
-            await delay(
-              BASE_RETRY_DELAY_MS * Math.pow(2, attempt) + Math.random() * 100,
-            );
-            continue;
+          } else {
+            throw error;
           }
-          throw error;
-        }
-
-        return {
-          data: responseData.data,
-          meta: responseData.meta,
-          status: response.status,
-        };
-      } catch (error) {
-        clearTimeout(timeoutId);
-        if (error instanceof AppError) throw error;
-        if (error.name === "AbortError") {
-          lastError = new AppError(
-            504,
-            "PROVIDER_TIMEOUT",
-            "Provider request timed out",
-          );
-        } else if (
-          error.code === "ECONNREFUSED" ||
-          error.code === "ENOTFOUND"
-        ) {
-          lastError = new AppError(
-            503,
-            "PROVIDER_UNREACHABLE",
-            "Provider is unreachable",
-          );
         } else {
-          lastError = new AppError(
-            502,
-            "PROVIDER_NETWORK_ERROR",
-            "Network error calling provider",
-          );
+          if (!responseData?.data || typeof responseData.data !== "object") {
+            throw new AppError(
+              502,
+              "PROVIDER_INVALID_RESPONSE",
+              "Provider response is missing operation data",
+            );
+          }
+
+          return {
+            data: responseData.data,
+            meta: responseData.meta ?? {},
+            status: response.status,
+            timeout: response.status === 202,
+          };
+        }
+      } catch (error) {
+        if (error instanceof AppError) {
+          if (error.statusCode < 500 || attempt >= retries) {
+            throw error;
+          }
+
+          lastError = error;
+        } else {
+          const timedOut =
+            controller.signal.aborted ||
+            error?.name === "AbortError" ||
+            error?.name === "TimeoutError";
+
+          const networkCode = error?.cause?.code ?? error?.code;
+
+          lastError = timedOut
+            ? new AppError(
+                504,
+                "PROVIDER_TIMEOUT",
+                "Provider request timed out",
+              )
+            : ["ECONNREFUSED", "ENOTFOUND", "EHOSTUNREACH"].includes(networkCode)
+              ? new AppError(
+                  503,
+                  "PROVIDER_UNREACHABLE",
+                  "Provider is unreachable",
+                )
+              : new AppError(
+                  502,
+                  "PROVIDER_NETWORK_ERROR",
+                  "Network error while contacting provider",
+                );
         }
 
-        if (attempt < retries) {
-          await delay(
-            BASE_RETRY_DELAY_MS * Math.pow(2, attempt) + Math.random() * 100,
-          );
-          continue;
-        }
-        throw lastError;
+        logger?.warn?.(
+          {
+            event: "provider.request.retry",
+            method,
+            providerId: selectedProviderId,
+            attempt: attempt + 1,
+            code: lastError.code,
+          },
+          "Provider request attempt failed",
+        );
+
+        if (attempt >= retries) throw lastError;
+      } finally {
+        clearTimeout(timeoutId);
       }
+
+      const backoff =
+        BASE_RETRY_DELAY_MS * 2 ** attempt + Math.random() * 100;
+
+      await delay(backoff);
     }
 
     throw lastError;
   }
 
-  async function authorize({
+  function authorize({
     clientOperationId,
     amountMinor,
     currency,
@@ -141,26 +226,27 @@ function createProviderClient({
     metadata,
     idempotencyKey,
     merchantId,
+    providerId: requestedProviderId,
   }) {
-    const payload = {
-      clientOperationId,
-      amountMinor,
-      currency,
-      idempotencyKey,
-      merchantId,
-      paymentMethod,
-      description,
-      metadata,
-    };
     return requestWithRetry({
       method: "POST",
-      path: "/provider/v1/authorizations",
-      payload,
+      path: "/v1/authorizations",
+      payload: {
+        clientOperationId,
+        amountMinor,
+        currency,
+        idempotencyKey,
+        merchantId,
+        paymentMethod,
+        description,
+        metadata,
+      },
       idempotencyKey,
+      requestedProviderId,
     });
   }
 
-  async function capture({
+  function capture({
     clientOperationId,
     authorizationOperationId,
     amountMinor,
@@ -168,25 +254,26 @@ function createProviderClient({
     idempotencyKey,
     merchantId,
     metadata,
+    providerId: requestedProviderId,
   }) {
-    const payload = {
-      clientOperationId,
-      authorizationOperationId,
-      amountMinor,
-      currency,
-      idempotencyKey,
-      merchantId,
-      metadata,
-    };
     return requestWithRetry({
       method: "POST",
-      path: "/provider/v1/captures",
-      payload,
+      path: "/v1/captures",
+      payload: {
+        clientOperationId,
+        authorizationOperationId,
+        amountMinor,
+        currency,
+        idempotencyKey,
+        merchantId,
+        metadata,
+      },
       idempotencyKey,
+      requestedProviderId,
     });
   }
 
-  async function refund({
+  function refund({
     clientOperationId,
     captureOperationId,
     amountMinor,
@@ -195,44 +282,58 @@ function createProviderClient({
     merchantId,
     reason,
     metadata,
+    providerId: requestedProviderId,
   }) {
-    const payload = {
-      clientOperationId,
-      captureOperationId,
-      amountMinor,
-      currency,
-      idempotencyKey,
-      merchantId,
-      reason,
-      metadata,
-    };
     return requestWithRetry({
       method: "POST",
-      path: "/provider/v1/refunds",
-      payload,
+      path: "/v1/refunds",
+      payload: {
+        clientOperationId,
+        captureOperationId,
+        amountMinor,
+        currency,
+        idempotencyKey,
+        merchantId,
+        reason,
+        metadata,
+      },
       idempotencyKey,
+      requestedProviderId,
     });
   }
 
-  async function getOperation({ operationId, idempotencyKey }) {
+  function getOperation({
+    operationId,
+    idempotencyKey,
+    providerId: requestedProviderId,
+  }) {
+    if (!operationId || typeof operationId !== "string") {
+      throw new AppError(
+        400,
+        "OPERATION_ID_REQUIRED",
+        "A valid operation ID is required",
+      );
+    }
+
     return requestWithRetry({
       method: "GET",
-      path: `/provider/v1/operations/${operationId}`,
-      payload: {},
+      path: `/v1/operations/${encodeURIComponent(operationId)}`,
       idempotencyKey: idempotencyKey ?? `get-${operationId}`,
+      requestedProviderId,
     });
   }
 
-  return { authorize, capture, refund, getOperation };
-}
-
-function delay(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return {
+    authorize,
+    capture,
+    refund,
+    getOperation,
+  };
 }
 
 export function createProviderClientService(config, logger) {
-  const baseUrl = config.providerBaseUrl;
-  const hmacSecret = config.mockProviderHmacSecret;
+  const baseUrl = config?.providerBaseUrl;
+  const hmacSecret = config?.mockProviderHmacSecret;
 
   if (!baseUrl || !hmacSecret) {
     throw new Error(
@@ -240,5 +341,10 @@ export function createProviderClientService(config, logger) {
     );
   }
 
-  return createProviderClient({ baseUrl, hmacSecret, logger });
+  return createProviderClient({
+    baseUrl,
+    hmacSecret,
+    providerId: config.providerId ?? "alpha",
+    logger,
+  });
 }

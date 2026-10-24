@@ -1,3 +1,4 @@
+
 import express from "express";
 import { z } from "zod";
 import {
@@ -8,81 +9,82 @@ import {
   listOperations,
 } from "./provider-operation.service.js";
 import { validate } from "../../middleware/validate.js";
+import { AppError } from "../../lib/errors.js";
 
 const router = express.Router();
 
 const amountMinorSchema = z
   .string()
-  .regex(
-    /^(0|[1-9]\d*)$/,
-    "amountMinor must be a positive integer digit string",
-  )
+  .regex(/^[1-9]\d*$/, "Amount must be a positive integer string")
   .refine(
-    (v) => BigInt(v) > 0n && BigInt(v) <= 1_000_000_000_000n,
-    "Amount out of range",
+    (value) => BigInt(value) <= 1_000_000_000_000n,
+    "Amount exceeds the allowed limit",
   );
 
 const currencySchema = z.enum(["USD", "INR"]);
+const operationIdSchema = z.string().trim().min(1).max(64);
+const merchantIdSchema = z.string().trim().min(1).max(64);
 
 const idempotencyKeySchema = z
   .string()
-  .trim()
   .min(8)
   .max(255)
-  .regex(/^[\x21-\x7E]+$/);
-
-const clientOperationIdSchema = z.string().trim().min(1).max(64);
-
-const merchantIdSchema = z.string().trim().min(1).max(64);
+  .regex(/^[\x21-\x7E]+$/, "Invalid idempotency key");
 
 const metadataSchema = z
   .record(z.string().trim().max(200))
-  .refine((v) => Object.keys(v).length <= 10, "Max 10 metadata entries")
+  .refine(
+    (value) => Object.keys(value).length <= 10,
+    "Maximum 10 metadata entries allowed",
+  )
   .optional();
 
-const authorizeSchema = z
+const baseOperationSchema = {
+  clientOperationId: operationIdSchema,
+  merchantId: merchantIdSchema,
+  amountMinor: amountMinorSchema,
+  currency: currencySchema,
+  idempotencyKey: idempotencyKeySchema,
+  metadata: metadataSchema,
+};
+
+const authorizationSchema = z
   .object({
-    clientOperationId: clientOperationIdSchema,
-    amountMinor: amountMinorSchema,
-    currency: currencySchema,
-    idempotencyKey: idempotencyKeySchema,
-    merchantId: merchantIdSchema,
-    paymentMethod: z.object({
-      type: z.enum(["card", "bank_transfer", "wallet"]),
-      token: z.string().trim().min(1).max(100),
-    }),
+    ...baseOperationSchema,
+    paymentMethod: z
+      .object({
+        type: z.enum(["card", "bank_transfer", "wallet"]),
+        token: z.string().trim().min(1).max(100),
+      })
+      .strict(),
     description: z.string().trim().max(500).optional(),
-    metadata: metadataSchema,
   })
   .strict();
 
 const captureSchema = z
   .object({
-    clientOperationId: clientOperationIdSchema,
-    authorizationOperationId: z.string().trim().min(1).max(64),
-    amountMinor: amountMinorSchema,
-    currency: currencySchema,
-    idempotencyKey: idempotencyKeySchema,
-    merchantId: merchantIdSchema,
-    metadata: metadataSchema,
+    ...baseOperationSchema,
+    authorizationOperationId: operationIdSchema,
   })
   .strict();
 
 const refundSchema = z
   .object({
-    clientOperationId: clientOperationIdSchema,
-    captureOperationId: z.string().trim().min(1).max(64),
-    amountMinor: amountMinorSchema,
-    currency: currencySchema,
-    idempotencyKey: idempotencyKeySchema,
-    merchantId: merchantIdSchema,
+    ...baseOperationSchema,
+    captureOperationId: operationIdSchema,
     reason: z.string().trim().min(1).max(240).optional(),
-    metadata: metadataSchema,
+  })
+  .strict();
+
+const operationParamsSchema = z
+  .object({
+    operationId: operationIdSchema,
   })
   .strict();
 
 const listQuerySchema = z
   .object({
+    merchantId: merchantIdSchema.optional(),
     type: z.enum(["AUTHORIZATION", "CAPTURE", "REFUND", "VOID"]).optional(),
     status: z
       .enum([
@@ -97,192 +99,182 @@ const listQuerySchema = z
     to: z.string().datetime().optional(),
     limit: z.coerce.number().int().min(1).max(100).default(20),
   })
-  .strict();
+  .strict()
+  .refine(
+    (query) => !query.from || !query.to || query.from <= query.to,
+    {
+      message: "from must not be later than to",
+      path: ["from"],
+    },
+  );
+
+function asyncHandler(handler) {
+  return (req, res, next) => {
+    Promise.resolve()
+      .then(() => handler(req, res))
+      .catch(next);
+  };
+}
+
+function serializeOperation(operation, detailed = false) {
+  const result = {
+    operationId: operation.operationId,
+    type: operation.type,
+    status: operation.status,
+    statusReason: operation.statusReason ?? null,
+    providerReference: operation.providerReference ?? null,
+    amountMinor: operation.amountMinor?.toString() ?? null,
+    currency: operation.currency,
+    clientOperationId: operation.clientOperationId,
+    createdAt: operation.createdAt,
+    processingCompletedAt: operation.processingCompletedAt ?? null,
+  };
+
+  if (detailed) {
+    Object.assign(result, {
+      merchantId: operation.merchantId,
+      requestPayload: operation.requestPayload,
+      responsePayload: operation.responsePayload ?? null,
+      faultInjected: operation.faultInjected ?? null,
+      processingStartedAt: operation.processingStartedAt ?? null,
+    });
+  }
+
+  return result;
+}
+
+function sendOperationResult(req, res, result) {
+  const statusCode = result.timeout
+    ? 202
+    : result.idempotent
+      ? 200
+      : 201;
+
+  return res.status(statusCode).json({
+    data: {
+      ...serializeOperation(result.operation),
+      idempotent: Boolean(result.idempotent),
+      timeout: Boolean(result.timeout),
+      completedAt: result.operation.processingCompletedAt ?? null,
+    },
+    meta: {
+      requestId: req.requestId,
+    },
+  });
+}
+
+function createOperationHandler(service) {
+  return asyncHandler(async (req, res) => {
+    const result = await service({
+      body: req.validated.body,
+      providerConfig: req.providerConfig,
+      isDemo: false,
+    });
+
+    return sendOperationResult(req, res, result);
+  });
+}
 
 router.post(
   "/v1/authorizations",
-  validate({ body: authorizeSchema }),
-  async (req, res, next) => {
-    try {
-      const providerConfig = req.providerConfig;
-      const result = await createAuthorization({
-        body: req.validated.body,
-        providerConfig,
-        isDemo: false,
-      });
-      const statusCode = result.timeout ? 202 : result.idempotent ? 200 : 201;
-      res.status(statusCode).json({
-        data: {
-          operationId: result.operation.operationId,
-          type: result.operation.type,
-          status: result.operation.status,
-          statusReason: result.operation.statusReason,
-          providerReference: result.operation.providerReference,
-          amountMinor:
-            result.operation.amountMinor?.toString?.() ??
-            result.operation.amountMinor,
-          currency: result.operation.currency,
-          clientOperationId: result.operation.clientOperationId,
-          idempotent: result.idempotent,
-          timeout: result.timeout ?? false,
-          createdAt: result.operation.createdAt,
-          completedAt: result.operation.processingCompletedAt,
-        },
-        meta: { requestId: req.requestId },
-      });
-    } catch (error) {
-      next(error);
-    }
-  },
+  validate({ body: authorizationSchema }),
+  createOperationHandler(createAuthorization),
 );
 
 router.post(
   "/v1/captures",
   validate({ body: captureSchema }),
-  async (req, res, next) => {
-    try {
-      const providerConfig = req.providerConfig;
-      const result = await createCapture({
-        body: req.validated.body,
-        providerConfig,
-        isDemo: false,
-      });
-      const statusCode = result.timeout ? 202 : result.idempotent ? 200 : 201;
-      res.status(statusCode).json({
-        data: {
-          operationId: result.operation.operationId,
-          type: result.operation.type,
-          status: result.operation.status,
-          statusReason: result.operation.statusReason,
-          providerReference: result.operation.providerReference,
-          amountMinor:
-            result.operation.amountMinor?.toString?.() ??
-            result.operation.amountMinor,
-          currency: result.operation.currency,
-          clientOperationId: result.operation.clientOperationId,
-          idempotent: result.idempotent,
-          timeout: result.timeout ?? false,
-          createdAt: result.operation.createdAt,
-          completedAt: result.operation.processingCompletedAt,
-        },
-        meta: { requestId: req.requestId },
-      });
-    } catch (error) {
-      next(error);
-    }
-  },
+  createOperationHandler(createCapture),
 );
 
 router.post(
   "/v1/refunds",
   validate({ body: refundSchema }),
-  async (req, res, next) => {
-    try {
-      const providerConfig = req.providerConfig;
-      const result = await createRefund({
-        body: req.validated.body,
-        providerConfig,
-        isDemo: false,
-      });
-      const statusCode = result.timeout ? 202 : result.idempotent ? 200 : 201;
-      res.status(statusCode).json({
-        data: {
-          operationId: result.operation.operationId,
-          type: result.operation.type,
-          status: result.operation.status,
-          statusReason: result.operation.statusReason,
-          providerReference: result.operation.providerReference,
-          amountMinor:
-            result.operation.amountMinor?.toString?.() ??
-            result.operation.amountMinor,
-          currency: result.operation.currency,
-          clientOperationId: result.operation.clientOperationId,
-          idempotent: result.idempotent,
-          timeout: result.timeout ?? false,
-          createdAt: result.operation.createdAt,
-          completedAt: result.operation.processingCompletedAt,
-        },
-        meta: { requestId: req.requestId },
-      });
-    } catch (error) {
-      next(error);
-    }
-  },
+  createOperationHandler(createRefund),
 );
 
-router.get("/v1/operations/:operationId", async (req, res, next) => {
-  try {
+router.get(
+  "/v1/operations/:operationId",
+  validate({ params: operationParamsSchema }),
+  asyncHandler(async (req, res) => {
     const operation = await getOperation({
-      operationId: req.params.operationId,
+      operationId: req.validated.params.operationId,
       providerId: req.providerConfig.providerId,
     });
-    res.json({
-      data: {
-        operationId: operation.operationId,
-        type: operation.type,
-        status: operation.status,
-        statusReason: operation.statusReason,
-        providerReference: operation.providerReference,
-        amountMinor:
-          operation.amountMinor?.toString?.() ?? operation.amountMinor,
-        currency: operation.currency,
-        clientOperationId: operation.clientOperationId,
-        merchantId: operation.merchantId,
-        requestPayload: operation.requestPayload,
-        responsePayload: operation.responsePayload,
-        faultInjected: operation.faultInjected,
-        createdAt: operation.createdAt,
-        processingStartedAt: operation.processingStartedAt,
-        processingCompletedAt: operation.processingCompletedAt,
+
+    if (!operation) {
+      throw new AppError(
+        404,
+        "PROVIDER_OPERATION_NOT_FOUND",
+        "Provider operation not found",
+      );
+    }
+
+    return res.status(200).json({
+      data: serializeOperation(operation, true),
+      meta: {
+        requestId: req.requestId,
       },
-      meta: { requestId: req.requestId },
     });
-  } catch (error) {
-    next(error);
-  }
-});
+  }),
+);
 
 router.get(
   "/v1/operations",
   validate({ query: listQuerySchema }),
-  async (req, res, next) => {
-    try {
-      const merchantId = req.query.merchantId ?? req.headers["x-merchant-id"];
-      if (!merchantId) {
-        return res.status(400).json({
-          error: {
-            code: "MERCHANT_ID_REQUIRED",
-            message: "merchantId query param or x-merchant-id header required",
-          },
-          meta: { requestId: req.requestId },
-        });
-      }
-      const result = await listOperations({
-        merchantId,
-        providerId: req.providerConfig.providerId,
-        query: req.validated.query,
-      });
-      res.json({
-        data: {
-          operations: result.operations.map((op) => ({
-            operationId: op.operationId,
-            type: op.type,
-            status: op.status,
-            providerReference: op.providerReference,
-            amountMinor: op.amountMinor?.toString?.() ?? op.amountMinor,
-            currency: op.currency,
-            clientOperationId: op.clientOperationId,
-            createdAt: op.createdAt,
-            processingCompletedAt: op.processingCompletedAt,
-          })),
-          count: result.count,
-        },
-        meta: { requestId: req.requestId },
-      });
-    } catch (error) {
-      next(error);
+  asyncHandler(async (req, res) => {
+    const { merchantId: queryMerchantId, ...filters } = req.validated.query;
+
+    const headerMerchantId = req.get("X-Merchant-ID")?.trim();
+
+    const parsedMerchantId = merchantIdSchema.safeParse(
+      queryMerchantId ?? headerMerchantId,
+    );
+
+    if (!parsedMerchantId.success) {
+      throw new AppError(
+        400,
+        "MERCHANT_ID_REQUIRED",
+        "A valid merchantId query parameter or X-Merchant-ID header is required",
+      );
     }
-  },
+
+    const merchantId = parsedMerchantId.data;
+
+    if (
+      queryMerchantId &&
+      headerMerchantId &&
+      queryMerchantId !== headerMerchantId
+    ) {
+      throw new AppError(
+        400,
+        "MERCHANT_ID_MISMATCH",
+        "Merchant identifiers in query and headers must match",
+      );
+    }
+
+    const result = await listOperations({
+      merchantId,
+      providerId: req.providerConfig.providerId,
+      query: filters,
+    });
+
+    const operations = Array.isArray(result?.operations)
+      ? result.operations
+      : [];
+
+    return res.status(200).json({
+      data: {
+        operations: operations.map((operation) =>
+          serializeOperation(operation),
+        ),
+        count: result?.count ?? operations.length,
+      },
+      meta: {
+        requestId: req.requestId,
+      },
+    });
+  }),
 );
 
 export default router;

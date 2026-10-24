@@ -1,6 +1,8 @@
-import { useParams, Link } from "react-router-dom";
-import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+
+import { useRef, useState } from "react";
+import { Link, useParams } from "react-router-dom";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ArrowLeft, Plus, AlertTriangle, RefreshCw } from "lucide-react";
 import { useAuth } from "../../app/AuthContext.jsx";
 import { apiClient } from "../../lib/apiClient.js";
 import { formatMoney } from "../../lib/format.js";
@@ -16,276 +18,311 @@ import { Input } from "../../components/ui/Input.jsx";
 import { Label } from "../../components/ui/Label.jsx";
 import {
   Dialog,
-  DialogTrigger,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogDescription,
   DialogFooter,
 } from "../../components/ui/Dialog.jsx";
-import { Plus, AlertTriangle, ArrowLeft } from "lucide-react";
+
+const initialForm = { amount: "", reason: "", full: false };
+
+const refundVariants = {
+  REQUESTED: "secondary",
+  QUEUED: "warning",
+  PROCESSING: "info",
+  SUCCEEDED: "success",
+  FAILED: "destructive",
+  UNKNOWN: "warning",
+  CANCELLED: "secondary",
+};
+
+const pendingStatuses = new Set([
+  "REQUESTED",
+  "QUEUED",
+  "PROCESSING",
+  "UNKNOWN",
+]);
+
+function getPayload(response) {
+  return response?.data?.data ?? response?.data;
+}
+
+function getRefunds(response) {
+  const data = getPayload(response);
+
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.refunds)) return data.refunds;
+  if (Array.isArray(data?.items)) return data.items;
+
+  return [];
+}
+
+function minor(value) {
+  try {
+    return BigInt(value ?? 0);
+  } catch {
+    return 0n;
+  }
+}
+
+function money(value, currency) {
+  return formatMoney(String(value ?? 0), currency);
+}
+
+function date(value) {
+  if (!value) return "—";
+  const result = new Date(value);
+  return Number.isNaN(result.getTime()) ? "—" : result.toLocaleString();
+}
+
+function Metric({ label, value, description }) {
+  return (
+    <Card>
+      <CardContent className="pt-5">
+        <p className="text-sm text-slate-500 dark:text-slate-400">
+          {label}
+        </p>
+        <p className="mt-2 text-2xl font-bold">{value}</p>
+        <p className="mt-1 text-xs text-slate-500">{description}</p>
+      </CardContent>
+    </Card>
+  );
+}
 
 export function RefundManagement() {
   const { paymentId } = useParams();
   const { auth } = useAuth();
   const queryClient = useQueryClient();
-  const [refundDialogOpen, setRefundDialogOpen] = useState(false);
-  const [refundAmount, setRefundAmount] = useState("");
-  const [refundReason, setRefundReason] = useState("");
-  const [isFullRefund, setIsFullRefund] = useState(false);
 
-  const { data: paymentData, isLoading: paymentLoading } = useQuery({
-    queryKey: ["payment", paymentId],
-    queryFn: () => apiClient.get(`/api/v1/payments/${paymentId}`),
-    enabled: !!auth && !!paymentId,
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState(initialForm);
+  const [error, setError] = useState("");
+
+  const idempotencyKey = useRef(null);
+  const encodedId = encodeURIComponent(paymentId ?? "");
+  const merchantId = auth?.merchantId ?? null;
+  const enabled = Boolean(auth && paymentId);
+
+  const canRefund =
+    auth?.permissions?.includes("refunds.create") ||
+    auth?.permissions?.includes("payments.refund") ||
+    false;
+
+  const paymentQuery = useQuery({
+    queryKey: ["payment", merchantId, paymentId],
+    queryFn: () => apiClient.get(`/api/v1/payments/${encodedId}`),
+    enabled,
   });
 
-  const { data: refundsData, isLoading: refundsLoading } = useQuery({
-    queryKey: ["refunds", paymentId],
-    queryFn: () => apiClient.get(`/api/v1/payments/${paymentId}/refunds`),
-    enabled: !!auth && !!paymentId,
+  const refundsQuery = useQuery({
+    queryKey: ["refunds", merchantId, paymentId],
+    queryFn: () => apiClient.get(`/api/v1/payments/${encodedId}/refunds`),
+    enabled,
   });
 
-  const createRefundMutation = useMutation({
-    mutationFn: (data) =>
-      apiClient.post(`/api/v1/payments/${paymentId}/refunds`, data, {
-        headers: { "Idempotency-Key": `refund-${paymentId}-${Date.now()}` },
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["refunds", paymentId] });
-      queryClient.invalidateQueries({ queryKey: ["payment", paymentId] });
-      setRefundDialogOpen(false);
-      setRefundAmount("");
-      setRefundReason("");
-      setIsFullRefund(false);
+  const payload = getPayload(paymentQuery.data);
+  const payment = payload?.payment ?? payload;
+  const refunds = getRefunds(refundsQuery.data);
+
+  const captured = minor(payment?.capturedMinor);
+  const refunded = minor(payment?.refundedMinor);
+
+  const pending = refunds
+    .filter((refund) => pendingStatuses.has(refund.status))
+    .reduce((total, refund) => total + minor(refund.amountMinor), 0n);
+
+  const confirmedAvailable = captured > refunded ? captured - refunded : 0n;
+  const available =
+    confirmedAvailable > pending ? confirmedAvailable - pending : 0n;
+
+  const mutation = useMutation({
+    mutationFn: ({ data, key }) =>
+      apiClient.post(
+        `/api/v1/payments/${encodedId}/refunds`,
+        data,
+        { headers: { "Idempotency-Key": key } },
+      ),
+    onSuccess: async () => {
+      idempotencyKey.current = null;
+      setOpen(false);
+      setForm(initialForm);
+      setError("");
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["payment"] }),
+        queryClient.invalidateQueries({ queryKey: ["refunds"] }),
+        queryClient.invalidateQueries({ queryKey: ["payments"] }),
+        queryClient.invalidateQueries({ queryKey: ["payment-summary"] }),
+        queryClient.invalidateQueries({ queryKey: ["ledger"] }),
+      ]);
+    },
+    onError: (requestError) => {
+      setError(requestError?.message ?? "Unable to create refund.");
     },
   });
 
-  const loading = paymentLoading || refundsLoading;
+  const updateForm = (field, value) => {
+    idempotencyKey.current = null;
+    setError("");
+    setForm((current) => ({ ...current, [field]: value }));
+  };
 
-  if (loading) {
+  const handleOpenChange = (nextOpen) => {
+    if (mutation.isPending) return;
+
+    setOpen(nextOpen);
+
+    if (!nextOpen) {
+      setForm(initialForm);
+      setError("");
+      idempotencyKey.current = null;
+    }
+  };
+
+  const submit = (event) => {
+    event.preventDefault();
+
+    if (mutation.isPending || !canRefund || !payment) return;
+
+    const amount = form.full ? available.toString() : form.amount;
+
+    if (!/^[1-9]\d*$/.test(amount)) {
+      setError("Enter a valid positive refund amount.");
+      return;
+    }
+
+    if (BigInt(amount) > available) {
+      setError("Refund amount exceeds the available balance.");
+      return;
+    }
+
+    if (!idempotencyKey.current) {
+      idempotencyKey.current = `refund_${crypto.randomUUID()}`;
+    }
+
+    mutation.mutate({
+      data: {
+        amountMinor: amount,
+        currency: payment.currency,
+        reason: form.reason.trim(),
+      },
+      key: idempotencyKey.current,
+    });
+  };
+
+  const loading = enabled && (paymentQuery.isPending || refundsQuery.isPending);
+  const queryError = paymentQuery.error || refundsQuery.error;
+
+  const refresh = () => {
+    paymentQuery.refetch();
+    refundsQuery.refetch();
+  };
+
+  if (!enabled) {
     return (
-      <div className="space-y-6">
-        <Card>
-          <CardContent className="pt-6">
-            <div className="h-8 bg-gray-200 animate-pulse rounded w-1/4" />
-            <div className="h-4 bg-gray-200 animate-pulse rounded w-1/2 mt-2" />
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  const payment = paymentData?.data?.payment || paymentData?.data;
-  const refunds = Array.isArray(refundsData?.data)
-    ? refundsData.data
-    : refundsData?.data?.refunds || refundsData?.data?.items || [];
-
-  if (!payment) {
-    return (
-      <div className="text-center py-12">
-        <p className="text-gray-500 dark:text-slate-400">Payment not found</p>
-        <Link
-          to="/payments"
-          className="btn-secondary mt-4 inline-flex items-center gap-2"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Back to payments
+      <div className="py-12 text-center text-sm">
+        <p>Sign in to manage refunds.</p>
+        <Link to="/login" className="mt-3 inline-block text-blue-600">
+          Sign in
         </Link>
       </div>
     );
   }
 
-  const capturedMinor = BigInt(
-    payment.capturedMinor || payment.amountMinor || 0,
-  );
-  const refundedMinor = BigInt(payment.refundedMinor || 0);
-  const availableMinor = capturedMinor - refundedMinor;
-  const pendingRefunds = refunds
-    .filter((r) => ["REQUESTED", "QUEUED", "PROCESSING"].includes(r.status))
-    .reduce((sum, r) => sum + BigInt(r.amountMinor), 0n);
+  if (loading) {
+    return (
+      <div className="grid gap-4 sm:grid-cols-3">
+        {[1, 2, 3].map((item) => (
+          <div
+            key={item}
+            className="h-28 animate-pulse rounded-xl bg-slate-200 dark:bg-slate-800"
+          />
+        ))}
+      </div>
+    );
+  }
 
-  const handleSubmitRefund = (e) => {
-    e.preventDefault();
-    const amountMinor = isFullRefund ? availableMinor.toString() : refundAmount;
-    if (!amountMinor || BigInt(amountMinor) <= 0n) return;
-    if (BigInt(amountMinor) > availableMinor) return;
-    createRefundMutation.mutate({
-      amountMinor,
-      currency: payment.currency,
-      reason: refundReason,
-    });
-  };
+  if (queryError || !payment) {
+    return (
+      <div role="alert" className="space-y-3 py-10 text-center">
+        <p className="text-sm text-red-600">
+          {queryError?.message ?? "Payment not found."}
+        </p>
+        <Button variant="outline" onClick={refresh}>
+          Try Again
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <header className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-3">
             <Link
-              to={`/payments/${payment.id}`}
-              className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white transition-colors"
-              title="Back to payment details"
+              to={`/payments/${encodedId}`}
+              aria-label="Back to payment"
+              className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
             >
               <ArrowLeft className="h-5 w-5" />
             </Link>
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-              Refund Management
-            </h1>
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight">
+                Refund Management
+              </h1>
+              <p className="mt-1 text-sm text-slate-500">
+                {payment.reference ?? paymentId}
+              </p>
+            </div>
           </div>
-          <p className="text-gray-500 dark:text-slate-400 mt-1 ml-9">
-            Payment: {payment.reference}
-          </p>
         </div>
-        <Dialog open={refundDialogOpen} onOpenChange={setRefundDialogOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="h-4 w-4 mr-2" />
+
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={refresh}>
+            <RefreshCw className="h-4 w-4" />
+            Refresh
+          </Button>
+
+          {canRefund && (
+            <Button
+              disabled={available <= 0n}
+              onClick={() => handleOpenChange(true)}
+            >
+              <Plus className="h-4 w-4" />
               Request Refund
             </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Request Refund</DialogTitle>
-              <DialogDescription>
-                Payment: {payment.reference} • Available:{" "}
-                {formatMoney(availableMinor, payment.currency)}
-              </DialogDescription>
-            </DialogHeader>
-            <form onSubmit={handleSubmitRefund}>
-              <div className="space-y-4">
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    id="fullRefund"
-                    checked={isFullRefund}
-                    onChange={(e) => setIsFullRefund(e.target.checked)}
-                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                  />
-                  <Label htmlFor="fullRefund" className="cursor-pointer">
-                    Full refund ({formatMoney(availableMinor, payment.currency)}
-                    )
-                  </Label>
-                </div>
-                {!isFullRefund && (
-                  <div className="space-y-2">
-                    <Label htmlFor="refundAmount">Amount (minor units)</Label>
-                    <Input
-                      id="refundAmount"
-                      type="number"
-                      value={refundAmount}
-                      onChange={(e) => setRefundAmount(e.target.value)}
-                      min="1"
-                      max={availableMinor.toString()}
-                      placeholder={availableMinor.toString()}
-                      disabled={createRefundMutation.isPending}
-                    />
-                    <p className="text-sm text-gray-500">
-                      Max available:{" "}
-                      {formatMoney(availableMinor, payment.currency)} (
-                      {availableMinor.toString()} minor units)
-                    </p>
-                  </div>
-                )}
-                <div className="space-y-2">
-                  <Label htmlFor="refundReason">Reason (optional)</Label>
-                  <Input
-                    id="refundReason"
-                    value={refundReason}
-                    onChange={(e) => setRefundReason(e.target.value)}
-                    placeholder="Customer request, duplicate charge, etc."
-                    disabled={createRefundMutation.isPending}
-                  />
-                </div>
-              </div>
-              <DialogFooter>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setRefundDialogOpen(false)}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  disabled={
-                    createRefundMutation.isPending ||
-                    (!isFullRefund && !refundAmount)
-                  }
-                >
-                  {createRefundMutation.isPending
-                    ? "Processing..."
-                    : "Request Refund"}
-                </Button>
-              </DialogFooter>
-            </form>
-          </DialogContent>
-        </Dialog>
+          )}
+        </div>
+      </header>
+
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Metric
+          label="Captured"
+          value={money(captured, payment.currency)}
+          description="Confirmed captured amount"
+        />
+        <Metric
+          label="Refunded"
+          value={money(refunded, payment.currency)}
+          description="Confirmed refunds"
+        />
+        <Metric
+          label="Available to Refund"
+          value={money(available, payment.currency)}
+          description="Excludes pending refund reservations"
+        />
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-500">
-              Captured Amount
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {formatMoney(capturedMinor, payment.currency)}
-            </div>
-            <p className="text-xs text-gray-500">Total captured</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-500">
-              Confirmed Refunded
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-600">
-              {formatMoney(refundedMinor, payment.currency)}
-            </div>
-            <p className="text-xs text-gray-500">Successfully refunded</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-500">
-              Available to Refund
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-blue-600">
-              {formatMoney(availableMinor, payment.currency)}
-            </div>
-            <p className="text-xs text-gray-500">Captured - Refunded</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {pendingRefunds > 0n && (
-        <Card className="border-amber-200 bg-amber-50">
-          <CardContent className="pt-0">
-            <div className="flex items-center gap-2 text-amber-800 p-4">
-              <AlertTriangle className="h-5 w-5" />
-              <div>
-                <p className="font-medium">Pending Refunds Reserved</p>
-                <p className="text-sm">
-                  {formatMoney(pendingRefunds, payment.currency)} reserved
-                  across{" "}
-                  {
-                    refunds.filter((r) =>
-                      ["REQUESTED", "QUEUED", "PROCESSING"].includes(r.status),
-                    ).length
-                  }{" "}
-                  pending refund(s)
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+      {pending > 0n && (
+        <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/20">
+          <AlertTriangle className="h-5 w-5 shrink-0 text-amber-600" />
+          <p className="text-sm text-amber-800 dark:text-amber-300">
+            {money(pending, payment.currency)} is reserved for
+            pending or uncertain refunds.
+          </p>
+        </div>
       )}
 
       <Card>
@@ -294,70 +331,135 @@ export function RefundManagement() {
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b text-left text-sm text-gray-500">
-                  <th className="pb-3 font-medium">Refund ID</th>
-                  <th className="pb-3 font-medium">Amount</th>
-                  <th className="pb-3 font-medium">Status</th>
-                  <th className="pb-3 font-medium">Reason</th>
-                  <th className="pb-3 font-medium">Created</th>
-                  <th className="pb-3 font-medium">Confirmed</th>
+            <table className="w-full text-left text-sm">
+              <thead className="border-b border-slate-200 text-xs text-slate-500 dark:border-slate-800">
+                <tr>
+                  {["Refund ID", "Amount", "Status", "Reason", "Created"].map(
+                    (heading) => (
+                      <th key={heading} className="whitespace-nowrap px-3 py-3">
+                        {heading}
+                      </th>
+                    ),
+                  )}
                 </tr>
               </thead>
-              <tbody className="divide-y">
-                {refunds.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="py-8 text-center text-gray-500">
-                      No refunds requested yet
-                    </td>
-                  </tr>
-                ) : (
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {refunds.length ? (
                   refunds.map((refund) => (
-                    <tr key={refund.id} className="hover:bg-gray-50">
-                      <td className="py-3 text-sm font-mono">
-                        {refund.id.slice(-12)}
+                    <tr key={refund.id}>
+                      <td className="px-3 py-3 font-mono text-xs">
+                        {refund.id?.slice(-12) ?? "—"}
                       </td>
-                      <td className="py-3 text-sm">
-                        {formatMoney(refund.amountMinor, refund.currency)}
+                      <td className="whitespace-nowrap px-3 py-3">
+                        {money(refund.amountMinor, refund.currency ?? payment.currency)}
                       </td>
-                      <td className="py-3">
-                        <Badge variant={getRefundVariant(refund.status)}>
+                      <td className="px-3 py-3">
+                        <Badge variant={refundVariants[refund.status] ?? "secondary"}>
                           {refund.status}
                         </Badge>
                       </td>
-                      <td className="py-3 text-sm text-gray-600 max-w-xs truncate">
+                      <td className="max-w-48 truncate px-3 py-3">
                         {refund.reason || "—"}
                       </td>
-                      <td className="py-3 text-sm text-gray-500">
-                        {new Date(refund.createdAt).toLocaleString()}
-                      </td>
-                      <td className="py-3 text-sm text-gray-500">
-                        {refund.confirmedAt
-                          ? new Date(refund.confirmedAt).toLocaleString()
-                          : "—"}
+                      <td className="whitespace-nowrap px-3 py-3 text-slate-500">
+                        {date(refund.createdAt)}
                       </td>
                     </tr>
                   ))
+                ) : (
+                  <tr>
+                    <td colSpan={5} className="py-8 text-center text-slate-500">
+                      No refunds requested yet.
+                    </td>
+                  </tr>
                 )}
               </tbody>
             </table>
           </div>
         </CardContent>
       </Card>
+
+      <Dialog open={open} onOpenChange={handleOpenChange}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Request Refund</DialogTitle>
+            <DialogDescription>
+              Available: {money(available, payment.currency)}
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={submit} className="space-y-4">
+            {error && (
+              <p
+                role="alert"
+                className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300"
+              >
+                {error}
+              </p>
+            )}
+
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={form.full}
+                disabled={mutation.isPending}
+                onChange={(event) => updateForm("full", event.target.checked)}
+                className="h-4 w-4 accent-blue-600"
+              />
+              Refund full available amount
+            </label>
+
+            {!form.full && (
+              <div className="space-y-2">
+                <Label htmlFor="refund-amount">Amount (minor units)</Label>
+                <Input
+                  id="refund-amount"
+                  inputMode="numeric"
+                  required
+                  disabled={mutation.isPending}
+                  value={form.amount}
+                  onChange={(event) =>
+                    updateForm("amount", event.target.value.replace(/\D/g, ""))
+                  }
+                  placeholder="1000"
+                />
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Label htmlFor="refund-reason">Reason (optional)</Label>
+              <Input
+                id="refund-reason"
+                maxLength={500}
+                disabled={mutation.isPending}
+                value={form.reason}
+                onChange={(event) => updateForm("reason", event.target.value)}
+                placeholder="Customer request"
+              />
+            </div>
+
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={mutation.isPending}
+                onClick={() => handleOpenChange(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={mutation.isPending || available <= 0n}
+                loading={mutation.isPending}
+              >
+                Request Refund
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
-function getRefundVariant(status) {
-  const variants = {
-    REQUESTED: "secondary",
-    QUEUED: "secondary",
-    PROCESSING: "default",
-    SUCCEEDED: "success",
-    FAILED: "destructive",
-    UNKNOWN: "destructive",
-    CANCELLED: "secondary",
-  };
-  return variants[status] || "secondary";
-}
+export default RefundManagement;

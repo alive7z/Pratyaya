@@ -7,6 +7,8 @@
   "scripts": {
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
+    "test": "vitest run",
+    "test:integration": "RUN_INTEGRATION_TESTS=1 vitest run --no-file-parallelism",
     "db:check": "node src/db/check.js"
   },
   "dependencies": {
@@ -15,5 +17,8 @@
     "mongoose": "^9.11.4",
     "pino": "^10.4.0",
     "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "vitest": "^5.0.5"
   }
 }

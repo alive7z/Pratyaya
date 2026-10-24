@@ -1,3 +1,4 @@
+
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
@@ -8,9 +9,11 @@ dotenv.config({
   quiet: true,
 });
 
-const packageJson = JSON.parse(
+const { version } = JSON.parse(
   readFileSync(new URL("../../package.json", import.meta.url), "utf8"),
 );
+
+const DEV_PROVIDER_SECRET = "dev-only-mock-provider-secret-change-me";
 
 const booleanString = (defaultValue = "false") =>
   z
@@ -18,7 +21,24 @@ const booleanString = (defaultValue = "false") =>
     .default(defaultValue)
     .transform((value) => value === "true" || value === "1");
 
-const DEV_PROVIDER_SECRET = "dev-only-mock-provider-secret-change-me";
+const jsonEnv = (schema, fallback) =>
+  z
+    .string()
+    .optional()
+    .transform((value, ctx) => {
+      if (!value?.trim()) return fallback;
+
+      try {
+        return JSON.parse(value);
+      } catch {
+        ctx.addIssue({
+          code: "custom",
+          message: "Must contain valid JSON",
+        });
+        return z.NEVER;
+      }
+    })
+    .pipe(schema);
 
 const faultRuleSchema = z
   .object({
@@ -30,6 +50,7 @@ const faultRuleSchema = z
       "duplicate_webhook",
     ]),
     enabled: z.boolean().default(false),
+    providerId: z.enum(["alpha", "beta", "gamma", "all"]).optional(),
     delayMs: z.coerce.number().int().min(0).max(60000).optional(),
     statusCode: z.coerce.number().int().min(400).max(599).optional(),
     code: z.string().trim().max(64).optional(),
@@ -44,7 +65,7 @@ const faultsSchema = z
   })
   .strict();
 
-const providerConfigSchema = z
+const providerSchema = z
   .object({
     providerId: z.enum(["alpha", "beta", "gamma"]),
     baseUrl: z.string().url(),
@@ -59,51 +80,110 @@ const providerConfigSchema = z
         failureProbability: z.coerce.number().min(0).max(1).default(0),
         timeoutProbability: z.coerce.number().min(0).max(1).default(0),
       })
+      .strict()
       .optional(),
   })
   .strict();
 
-const providersSchema = z.array(providerConfigSchema).min(1).max(3);
+const providersSchema = z
+  .array(providerSchema)
+  .min(1)
+  .max(3)
+  .refine(
+    (providers) =>
+      new Set(providers.map((provider) => provider.providerId)).size ===
+      providers.length,
+    { message: "Provider IDs must be unique" },
+  );
 
 const envSchema = z.object({
   NODE_ENV: z
     .enum(["development", "test", "production"])
     .default("development"),
+
   LOG_LEVEL: z
     .enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"])
     .default("info"),
+
   PROVIDER_PORT: z.coerce.number().int().min(1).max(65535).default(4100),
   PORT: z.coerce.number().int().min(1).max(65535).optional(),
-  PROVIDER_PUBLIC_URL: z.string().url().default("http://127.0.0.1:4100"),
-  MOCK_PROVIDER_HMAC_SECRET: z.string().min(32).default(DEV_PROVIDER_SECRET),
+
+  PROVIDER_PUBLIC_URL: z
+    .string()
+    .url()
+    .default("http://127.0.0.1:4100"),
+
+  MOCK_PROVIDER_HMAC_SECRET: z
+    .string()
+    .min(32)
+    .default(DEV_PROVIDER_SECRET),
+
   PROVIDER_MONGODB_URI: z
     .string()
     .regex(
-      /^mongodb\+srv:\/\//,
-      "PROVIDER_MONGODB_URI must be a MongoDB Atlas connection string",
+      /^mongodb\+srv:\/\/[^/]+/i,
+      "Must be a MongoDB Atlas connection string",
     )
-    .optional(),
-  MONGODB_MAX_POOL_SIZE: z.coerce.number().int().min(1).max(50).default(10),
+    .min(1),
+
+  MONGODB_MAX_POOL_SIZE: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(50)
+    .default(10),
+
   MONGODB_SERVER_SELECTION_TIMEOUT_MS: z.coerce
     .number()
     .int()
     .min(1000)
     .default(5000),
-  MONGODB_CONNECT_TIMEOUT_MS: z.coerce.number().int().min(1000).default(10000),
-  MONGODB_SOCKET_TIMEOUT_MS: z.coerce.number().int().min(1000).default(45000),
+
+  MONGODB_CONNECT_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .min(1000)
+    .default(10000),
+
+  MONGODB_SOCKET_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .min(1000)
+    .default(45000),
+
   MONGODB_AUTO_INDEX: booleanString("true"),
-  PROVIDERS: z
-    .string()
-    .optional()
-    .transform((val) => (val ? JSON.parse(val) : undefined))
-    .pipe(providersSchema.optional()),
-  PROVIDER_FAULTS: z
-    .string()
-    .optional()
-    .transform((val) => (val ? JSON.parse(val) : { enabled: false, rules: [] }))
-    .pipe(faultsSchema)
-    .default({ enabled: false, rules: [] }),
+
+  PROVIDERS: jsonEnv(providersSchema.optional(), undefined),
+
+  PROVIDER_FAULTS: jsonEnv(faultsSchema, {
+    enabled: false,
+    rules: [],
+  }),
 });
+
+function validateProduction(env, providers) {
+  if (env.NODE_ENV !== "production") return;
+
+  if (env.MOCK_PROVIDER_HMAC_SECRET === DEV_PROVIDER_SECRET) {
+    throw new Error(
+      "MOCK_PROVIDER_HMAC_SECRET must use a unique production secret",
+    );
+  }
+
+  if (providers.some((provider) => provider.hmacSecret === DEV_PROVIDER_SECRET)) {
+    throw new Error(
+      "Provider HMAC secrets must not use development credentials in production",
+    );
+  }
+
+  const publicUrl = new URL(env.PROVIDER_PUBLIC_URL);
+
+  if (publicUrl.protocol !== "https:") {
+    throw new Error(
+      "PROVIDER_PUBLIC_URL must use HTTPS in production",
+    );
+  }
+}
 
 export function loadConfig() {
   const result = envSchema.safeParse(process.env);
@@ -111,30 +191,18 @@ export function loadConfig() {
   if (!result.success) {
     const issues = result.error.issues
       .map(
-        (issue) => `${issue.path.join(".") || "environment"}: ${issue.message}`,
+        (issue) =>
+          `${issue.path.join(".") || "environment"}: ${issue.message}`,
       )
       .join("; ");
+
     throw new Error(`Invalid mock-provider configuration: ${issues}`);
   }
 
   const env = result.data;
 
-  if (!env.PROVIDER_MONGODB_URI) {
-    throw new Error(
-      "Invalid mock-provider configuration: PROVIDER_MONGODB_URI is required (use the Atlas connection string for the provider cluster)",
-    );
-  }
+  const publicUrl = env.PROVIDER_PUBLIC_URL.replace(/\/+$/, "");
 
-  if (
-    env.NODE_ENV === "production" &&
-    env.MOCK_PROVIDER_HMAC_SECRET === DEV_PROVIDER_SECRET
-  ) {
-    throw new Error(
-      "Invalid mock-provider configuration: MOCK_PROVIDER_HMAC_SECRET must be set to a unique secret in production",
-    );
-  }
-
-  const publicUrl = env.PROVIDER_PUBLIC_URL.replace(/\/$/, "");
   const providers =
     env.PROVIDERS ??
     ["alpha", "beta", "gamma"].map((providerId) => ({
@@ -146,15 +214,13 @@ export function loadConfig() {
       faults: { enabled: false, rules: [] },
     }));
 
-  const providerIds = providers.map((p) => p.providerId);
-  if (new Set(providerIds).size !== providerIds.length) {
-    throw new Error("Duplicate provider IDs in PROVIDERS configuration");
-  }
+  validateProduction(env, providers);
 
   return Object.freeze({
     nodeEnv: env.NODE_ENV,
     logLevel: env.LOG_LEVEL,
     providerPort: env.PORT ?? env.PROVIDER_PORT,
+
     mongodb: Object.freeze({
       uri: env.PROVIDER_MONGODB_URI,
       maxPoolSize: env.MONGODB_MAX_POOL_SIZE,
@@ -163,13 +229,38 @@ export function loadConfig() {
       socketTimeoutMs: env.MONGODB_SOCKET_TIMEOUT_MS,
       autoIndex: env.MONGODB_AUTO_INDEX,
     }),
-    faults: Object.freeze(env.PROVIDER_FAULTS),
+
+    faults: Object.freeze({
+      enabled: env.PROVIDER_FAULTS.enabled,
+      rules: Object.freeze(
+        env.PROVIDER_FAULTS.rules.map((rule) =>
+          Object.freeze({ ...rule }),
+        ),
+      ),
+    }),
+
     providers: Object.freeze(
-      providers.map((provider) => Object.freeze(provider)),
+      providers.map((provider) =>
+        Object.freeze({
+          ...provider,
+          faults: Object.freeze({
+            ...provider.faults,
+            rules: Object.freeze(
+              provider.faults.rules.map((rule) =>
+                Object.freeze({ ...rule }),
+              ),
+            ),
+          }),
+          ...(provider.healthConfig && {
+            healthConfig: Object.freeze({ ...provider.healthConfig }),
+          }),
+        }),
+      ),
     ),
+
     service: Object.freeze({
       name: "pratyaya-mock-provider",
-      version: packageJson.version,
+      version,
     }),
   });
 }

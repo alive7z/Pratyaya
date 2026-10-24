@@ -1,3 +1,4 @@
+
 const HOP_BY_HOP_HEADERS = new Set([
   "connection",
   "content-length",
@@ -11,75 +12,151 @@ const HOP_BY_HOP_HEADERS = new Set([
   "upgrade",
 ]);
 
-function apiOrigin() {
+function getApiOrigin() {
   const configured = process.env.PRATYAYA_API_ORIGIN;
+
   if (!configured) {
     throw new Error("PRATYAYA_API_ORIGIN is not configured");
   }
 
-  const origin = new URL(configured);
-  if (origin.protocol !== "https:" || origin.username || origin.password) {
-    throw new Error("PRATYAYA_API_ORIGIN must be a credential-free HTTPS URL");
+  const url = new URL(configured);
+
+  if (
+    !["https:", "http:"].includes(url.protocol) ||
+    (url.protocol === "http:" &&
+      !["localhost", "127.0.0.1"].includes(url.hostname)) ||
+    url.username ||
+    url.password ||
+    url.pathname !== "/" ||
+    url.search ||
+    url.hash
+  ) {
+    throw new Error("Invalid PRATYAYA_API_ORIGIN configuration");
   }
 
-  return origin.origin;
+  return url.origin;
 }
 
-function requestBody(req) {
-  if (["GET", "HEAD"].includes(req.method)) return undefined;
-  if (req.body === undefined || req.body === null) return undefined;
-  if (typeof req.body === "string" || Buffer.isBuffer(req.body)) {
-    return req.body;
-  }
-  return JSON.stringify(req.body);
-}
-
-function requestHeaders(req) {
+function getRequestHeaders(req) {
   const headers = new Headers();
+  const excluded = new Set(HOP_BY_HOP_HEADERS);
+
+  const connection = req.headers?.connection;
+
+  if (connection) {
+    for (const name of String(connection).split(",")) {
+      excluded.add(name.trim().toLowerCase());
+    }
+  }
+
   for (const [name, value] of Object.entries(req.headers ?? {})) {
-    if (HOP_BY_HOP_HEADERS.has(name.toLowerCase()) || value === undefined) {
+    if (
+      excluded.has(name.toLowerCase()) ||
+      value === undefined ||
+      value === null
+    ) {
       continue;
     }
-    headers.set(name, Array.isArray(value) ? value.join(", ") : value);
+
+    headers.set(name, Array.isArray(value) ? value.join(", ") : String(value));
   }
+
   return headers;
 }
 
-function copyResponseHeaders(upstream, res) {
+function getRequestBody(req) {
+  if (["GET", "HEAD"].includes(req.method)) return undefined;
+  if (req.body === undefined || req.body === null) return undefined;
+
+  if (Buffer.isBuffer(req.body) || typeof req.body === "string") {
+    return req.body;
+  }
+
+  if (typeof req.body === "object") {
+    return JSON.stringify(req.body);
+  }
+
+  return String(req.body);
+}
+
+function setResponseHeaders(upstream, res) {
+  const excluded = new Set(HOP_BY_HOP_HEADERS);
+
+  const connection = upstream.headers.get("connection");
+
+  if (connection) {
+    for (const name of connection.split(",")) {
+      excluded.add(name.trim().toLowerCase());
+    }
+  }
+
   for (const [name, value] of upstream.headers.entries()) {
-    if (HOP_BY_HOP_HEADERS.has(name.toLowerCase()) || name === "set-cookie") {
+    if (excluded.has(name.toLowerCase()) || name.toLowerCase() === "set-cookie") {
       continue;
     }
+
     res.setHeader(name, value);
   }
 
   const cookies = upstream.headers.getSetCookie?.() ?? [];
-  if (cookies.length > 0) res.setHeader("set-cookie", cookies);
+
+  if (cookies.length > 0) {
+    res.setHeader("Set-Cookie", cookies);
+  }
 }
 
 export default async function handler(req, res) {
   try {
-    const incoming = new URL(req.url, "https://pratyaya.invalid");
-    const upstream = await fetch(
-      `${apiOrigin()}${incoming.pathname}${incoming.search}`,
-      {
-        method: req.method,
-        headers: requestHeaders(req),
-        body: requestBody(req),
-        redirect: "manual",
-        signal: AbortSignal.timeout(30_000),
-      },
+    const origin = getApiOrigin();
+    const incoming = new URL(req.url, "http://localhost");
+
+    const target = new URL(
+      `${incoming.pathname}${incoming.search}`,
+      `${origin}/`,
     );
 
-    copyResponseHeaders(upstream, res);
-    res.status(upstream.status).send(Buffer.from(await upstream.arrayBuffer()));
-  } catch {
-    res.status(502).json({
+    if (target.origin !== origin) {
+      throw new Error("Invalid upstream destination");
+    }
+
+    const upstream = await fetch(target, {
+      method: req.method,
+      headers: getRequestHeaders(req),
+      body: getRequestBody(req),
+      redirect: "manual",
+      signal: AbortSignal.timeout(30000),
+    });
+
+    setResponseHeaders(upstream, res);
+
+    res.status(upstream.status);
+
+    if (
+      req.method === "HEAD" ||
+      upstream.status === 204 ||
+      upstream.status === 304
+    ) {
+      return res.end();
+    }
+
+    const body = Buffer.from(await upstream.arrayBuffer());
+
+    return res.send(body);
+  } catch (error) {
+    console.error("Pratyaya API proxy error:", error.message);
+
+    if (res.headersSent) {
+      return res.end();
+    }
+
+    return res.status(502).json({
       error: {
         code: "API_PROXY_UNAVAILABLE",
         message: "The Pratyaya API is unavailable",
       },
-      meta: { timestamp: new Date().toISOString() },
+      meta: {
+        timestamp: new Date().toISOString(),
+      },
     });
   }
 }

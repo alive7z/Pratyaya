@@ -1,3 +1,4 @@
+
 import { createHash, randomUUID } from "node:crypto";
 import {
   ProviderOperation,
@@ -6,517 +7,256 @@ import {
 } from "./provider-operation.model.js";
 import { AppError } from "../../lib/errors.js";
 
+const { AUTHORIZATION, CAPTURE, REFUND } = PROVIDER_OPERATION_TYPES;
+const { RECEIVED, PROCESSING, SUCCEEDED, DECLINED, UNKNOWN_TO_CLIENT } =
+  PROVIDER_OPERATION_STATUS;
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 function hashPayload(payload) {
   return createHash("sha256")
     .update(JSON.stringify(payload))
-    .digest("hex")
-    .slice(0, 64);
+    .digest("hex");
 }
 
-function getFaultConfig(providerConfig) {
+function getFault(providerConfig) {
   if (!providerConfig?.faults?.enabled) return null;
-  const faults = providerConfig.faults.rules ?? [];
-  return faults.find((f) => f.enabled === true) ?? null;
+
+  return (
+    providerConfig.faults.rules?.find(
+      (rule) =>
+        rule.enabled === true &&
+        (!rule.providerId ||
+          rule.providerId === "all" ||
+          rule.providerId === providerConfig.providerId),
+    ) ?? null
+  );
 }
 
 async function applyFault(fault) {
   if (!fault) return null;
 
   switch (fault.type) {
-    case "timeout": {
-      const delayMs = fault.delayMs ?? 30000;
-      await new Promise((resolve) => setTimeout(resolve, delayMs));
-      return {
-        type: "timeout",
-        message: "Simulated provider timeout",
-      };
-    }
-    case "latency": {
-      const delayMs = fault.delayMs ?? 2000;
-      await new Promise((resolve) => setTimeout(resolve, delayMs));
-      return null;
-    }
-    case "decline": {
+    case "timeout":
+      await sleep(fault.delayMs ?? 30000);
+      return { type: "timeout" };
+
+    case "latency":
+      await sleep(fault.delayMs ?? 2000);
+      return { type: "latency" };
+
+    case "decline":
       return {
         type: "decline",
-        message: fault.message ?? "Simulated provider decline",
         code: fault.code ?? "PROVIDER_DECLINED",
+        message: fault.message ?? "Simulated provider decline",
       };
-    }
-    case "error": {
+
+    case "error":
       throw new AppError(
         fault.statusCode ?? 500,
         fault.code ?? "PROVIDER_ERROR",
         fault.message ?? "Simulated provider error",
       );
-    }
+
     default:
       return null;
   }
 }
 
-export async function createAuthorization({
-  body,
-  providerConfig,
+function getRequestPayload(type, body) {
+  const {
+    clientOperationId,
+    amountMinor,
+    currency,
+    metadata,
+  } = body;
+
+  const payload = {
+    clientOperationId,
+    amountMinor,
+    currency,
+    metadata,
+  };
+
+  if (type === AUTHORIZATION) {
+    payload.paymentMethod = body.paymentMethod;
+    payload.description = body.description;
+  }
+
+  if (type === CAPTURE) {
+    payload.authorizationOperationId = body.authorizationOperationId;
+  }
+
+  if (type === REFUND) {
+    payload.captureOperationId = body.captureOperationId;
+    payload.reason = body.reason;
+  }
+
+  return payload;
+}
+
+function getFingerprint(type, body) {
+  const payload = {
+    type,
+    merchantId: body.merchantId,
+    clientOperationId: body.clientOperationId,
+    amountMinor: body.amountMinor,
+    currency: body.currency,
+  };
+
+  if (type === AUTHORIZATION) {
+    payload.paymentMethod = body.paymentMethod;
+  }
+
+  if (type === CAPTURE) {
+    payload.authorizationOperationId = body.authorizationOperationId;
+  }
+
+  if (type === REFUND) {
+    payload.captureOperationId = body.captureOperationId;
+  }
+
+  return hashPayload(payload);
+}
+
+async function findExisting({
+  type,
+  providerId,
+  idempotencyKey,
+  fingerprint,
   session,
-  isDemo,
 }) {
-  const {
-    clientOperationId,
-    amountMinor,
-    currency,
+  const existing = await ProviderOperation.findOne({
+    providerId,
+    type,
     idempotencyKey,
-    merchantId,
-    paymentMethod,
-    description,
-    metadata,
-  } = body;
-  const providerId = providerConfig.providerId;
-
-  const requestPayload = {
-    clientOperationId,
-    amountMinor,
-    currency,
-    paymentMethod,
-    description,
-    metadata,
-  };
-
-  const fingerprint = hashPayload({
-    clientOperationId,
-    amountMinor,
-    currency,
-    paymentMethod,
-  });
-
-  const existing = await ProviderOperation.findOne(
-    {
-      providerId,
-      idempotencyKey,
-      type: PROVIDER_OPERATION_TYPES.AUTHORIZATION,
-    },
-    null,
-    { session },
-  ).lean();
-
-  if (existing) {
-    if (existing.requestFingerprint !== fingerprint) {
-      throw new AppError(
-        409,
-        "IDEMPOTENCY_CONFLICT",
-        "Idempotency key used with different request payload",
-        { operationId: existing.operationId },
-      );
-    }
-    return { operation: existing, idempotent: true };
-  }
-
-  // The caller persists clientOperationId before dispatch. Reusing it here
-  // makes provider lookup safe after a lost response or timeout.
-  const operationId = clientOperationId;
-
-  const fault = getFaultConfig(providerConfig);
-  let status = PROVIDER_OPERATION_STATUS.RECEIVED;
-  let statusReason = null;
-  let responsePayload = null;
-  let providerReference = null;
-  let faultInjected = null;
-
-  const [operation] = await ProviderOperation.create(
-    [
-      {
-        providerId,
-        operationId,
-        type: PROVIDER_OPERATION_TYPES.AUTHORIZATION,
-        clientOperationId,
-        merchantId,
-        amountMinor: BigInt(amountMinor),
-        currency,
-        status,
-        requestPayload,
-        idempotencyKey,
-        requestFingerprint: fingerprint,
-        isDemo,
-      },
-    ],
-    { session },
-  );
-
-  await ProviderOperation.updateOne(
-    { _id: operation._id },
-    {
-      $set: {
-        status: PROVIDER_OPERATION_STATUS.PROCESSING,
-        processingStartedAt: new Date(),
-      },
-    },
-    { session },
-  );
-
-  const faultResult = await applyFault(fault);
-
-  if (faultResult?.type === "timeout") {
-    await ProviderOperation.updateOne(
-      { _id: operation._id },
-      {
-        $set: {
-          status: PROVIDER_OPERATION_STATUS.UNKNOWN_TO_CLIENT,
-          statusReason: "Provider timeout - outcome unknown to client",
-          processingCompletedAt: new Date(),
-          faultInjected: "timeout",
-        },
-      },
-      { session },
-    );
-    const updated = await ProviderOperation.findById(operation._id)
-      .session(session)
-      .lean();
-    return { operation: updated, idempotent: false, timeout: true };
-  }
-
-  if (faultResult?.type === "decline") {
-    status = PROVIDER_OPERATION_STATUS.DECLINED;
-    statusReason = faultResult.message;
-    responsePayload = {
-      declined: true,
-      code: faultResult.code,
-      message: faultResult.message,
-    };
-    faultInjected = "decline";
-  } else {
-    status = PROVIDER_OPERATION_STATUS.SUCCEEDED;
-    providerReference = `PROV-${randomUUID().slice(0, 12).toUpperCase()}`;
-    responsePayload = {
-      authorized: true,
-      providerReference,
-      amountMinor,
-      currency,
-    };
-  }
-
-  await ProviderOperation.updateOne(
-    { _id: operation._id },
-    {
-      $set: {
-        status,
-        statusReason,
-        responsePayload,
-        providerReference,
-        processingCompletedAt: new Date(),
-        faultInjected,
-      },
-    },
-    { session },
-  );
-
-  const updated = await ProviderOperation.findById(operation._id)
-    .session(session)
+  })
+    .session(session ?? null)
     .lean();
-  return { operation: updated, idempotent: false };
+
+  if (!existing) return null;
+
+  if (existing.requestFingerprint !== fingerprint) {
+    throw new AppError(
+      409,
+      "IDEMPOTENCY_CONFLICT",
+      "Idempotency key was already used with a different request",
+      { operationId: existing.operationId },
+    );
+  }
+
+  return existing;
 }
 
-export async function createCapture({ body, providerConfig, session, isDemo }) {
-  const {
-    clientOperationId,
-    authorizationOperationId,
-    amountMinor,
-    currency,
-    idempotencyKey,
-    merchantId,
-    metadata,
-  } = body;
-  const providerId = providerConfig.providerId;
+async function validateParentOperation({
+  type,
+  body,
+  providerId,
+  session,
+}) {
+  if (type === AUTHORIZATION) return;
 
-  const requestPayload = {
-    clientOperationId,
-    authorizationOperationId,
-    amountMinor,
-    currency,
-    metadata,
-  };
+  const parentType = type === CAPTURE ? AUTHORIZATION : CAPTURE;
 
-  const fingerprint = hashPayload({
-    clientOperationId,
-    authorizationOperationId,
-    amountMinor,
-    currency,
-  });
+  const parentOperationId =
+    type === CAPTURE
+      ? body.authorizationOperationId
+      : body.captureOperationId;
 
-  const existing = await ProviderOperation.findOne(
-    { providerId, idempotencyKey, type: PROVIDER_OPERATION_TYPES.CAPTURE },
-    null,
-    { session },
-  ).lean();
-
-  if (existing) {
-    if (existing.requestFingerprint !== fingerprint) {
-      throw new AppError(
-        409,
-        "IDEMPOTENCY_CONFLICT",
-        "Idempotency key used with different request payload",
-        { operationId: existing.operationId },
-      );
-    }
-    return { operation: existing, idempotent: true };
-  }
-
-  const operationId = clientOperationId;
-
-  const fault = getFaultConfig(providerConfig);
-  let status = PROVIDER_OPERATION_STATUS.RECEIVED;
-  let statusReason = null;
-  let responsePayload = null;
-  let providerReference = null;
-  let faultInjected = null;
-
-  const [operation] = await ProviderOperation.create(
-    [
-      {
-        providerId,
-        operationId,
-        type: PROVIDER_OPERATION_TYPES.CAPTURE,
-        clientOperationId,
-        merchantId,
-        amountMinor: BigInt(amountMinor),
-        currency,
-        status,
-        requestPayload,
-        idempotencyKey,
-        requestFingerprint: fingerprint,
-        isDemo,
-      },
-    ],
-    { session },
-  );
-
-  await ProviderOperation.updateOne(
-    { _id: operation._id },
-    {
-      $set: {
-        status: PROVIDER_OPERATION_STATUS.PROCESSING,
-        processingStartedAt: new Date(),
-      },
-    },
-    { session },
-  );
-
-  const faultResult = await applyFault(fault);
-
-  if (faultResult?.type === "timeout") {
-    await ProviderOperation.updateOne(
-      { _id: operation._id },
-      {
-        $set: {
-          status: PROVIDER_OPERATION_STATUS.UNKNOWN_TO_CLIENT,
-          statusReason: "Provider timeout - outcome unknown to client",
-          processingCompletedAt: new Date(),
-          faultInjected: "timeout",
-        },
-      },
-      { session },
-    );
-    const updated = await ProviderOperation.findById(operation._id)
-      .session(session)
-      .lean();
-    return { operation: updated, idempotent: false, timeout: true };
-  }
-
-  if (faultResult?.type === "decline") {
-    status = PROVIDER_OPERATION_STATUS.DECLINED;
-    statusReason = faultResult.message;
-    responsePayload = {
-      captured: false,
-      code: faultResult.code,
-      message: faultResult.message,
-    };
-    faultInjected = "decline";
-  } else {
-    status = PROVIDER_OPERATION_STATUS.SUCCEEDED;
-    providerReference = `PROV-${randomUUID().slice(0, 12).toUpperCase()}`;
-    responsePayload = {
-      captured: true,
-      providerReference,
-      amountMinor,
-      currency,
-      authorizationOperationId,
-    };
-  }
-
-  await ProviderOperation.updateOne(
-    { _id: operation._id },
-    {
-      $set: {
-        status,
-        statusReason,
-        responsePayload,
-        providerReference,
-        processingCompletedAt: new Date(),
-        faultInjected,
-      },
-    },
-    { session },
-  );
-
-  const updated = await ProviderOperation.findById(operation._id)
-    .session(session)
+  const parent = await ProviderOperation.findOne({
+    operationId: parentOperationId,
+    providerId,
+    merchantId: body.merchantId,
+    type: parentType,
+  })
+    .session(session ?? null)
     .lean();
-  return { operation: updated, idempotent: false };
+
+  if (!parent) {
+    throw new AppError(
+      404,
+      "PARENT_OPERATION_NOT_FOUND",
+      "Referenced provider operation was not found",
+    );
+  }
+
+  if (parent.status !== SUCCEEDED) {
+    throw new AppError(
+      409,
+      "PARENT_OPERATION_NOT_SUCCEEDED",
+      "Referenced provider operation has not succeeded",
+    );
+  }
+
+  if (parent.currency !== body.currency) {
+    throw new AppError(
+      409,
+      "CURRENCY_MISMATCH",
+      "Operation currency does not match the original operation",
+    );
+  }
+
+  const parentAmount = BigInt(parent.amountMinor);
+  const requestedAmount = BigInt(body.amountMinor);
+
+  if (requestedAmount > parentAmount) {
+    throw new AppError(
+      409,
+      "AMOUNT_EXCEEDS_PARENT",
+      "Requested amount exceeds the original operation amount",
+    );
+  }
+
+  const relatedType = type;
+
+  const relatedField =
+    type === CAPTURE
+      ? "requestPayload.authorizationOperationId"
+      : "requestPayload.captureOperationId";
+
+  const related = await ProviderOperation.find({
+    providerId,
+    merchantId: body.merchantId,
+    type: relatedType,
+    [relatedField]: parentOperationId,
+    status: {
+      $in: [RECEIVED, PROCESSING, SUCCEEDED, UNKNOWN_TO_CLIENT],
+    },
+  })
+    .session(session ?? null)
+    .select("amountMinor")
+    .lean();
+
+  const reservedAmount = related.reduce(
+    (total, operation) => total + BigInt(operation.amountMinor),
+    0n,
+  );
+
+  if (reservedAmount + requestedAmount > parentAmount) {
+    throw new AppError(
+      409,
+      type === CAPTURE
+        ? "CAPTURE_AMOUNT_EXCEEDED"
+        : "REFUND_AMOUNT_EXCEEDED",
+      type === CAPTURE
+        ? "Capture amount exceeds the remaining authorized amount"
+        : "Refund amount exceeds the remaining captured amount",
+    );
+  }
 }
 
-export async function createRefund({ body, providerConfig, session, isDemo }) {
-  const {
-    clientOperationId,
-    captureOperationId,
-    amountMinor,
-    currency,
-    idempotencyKey,
-    merchantId,
-    reason,
-    metadata,
-  } = body;
-  const providerId = providerConfig.providerId;
-
-  const requestPayload = {
-    clientOperationId,
-    captureOperationId,
-    amountMinor,
-    currency,
-    reason,
-    metadata,
-  };
-
-  const fingerprint = hashPayload({
-    clientOperationId,
-    captureOperationId,
-    amountMinor,
-    currency,
-  });
-
-  const existing = await ProviderOperation.findOne(
-    { providerId, idempotencyKey, type: PROVIDER_OPERATION_TYPES.REFUND },
-    null,
-    { session },
+async function updateOperation(operationId, changes, session) {
+  const operation = await ProviderOperation.findOneAndUpdate(
+    { operationId },
+    { $set: changes },
+    {
+      returnDocument: "after",
+      runValidators: true,
+      session: session ?? null,
+    },
   ).lean();
 
-  if (existing) {
-    if (existing.requestFingerprint !== fingerprint) {
-      throw new AppError(
-        409,
-        "IDEMPOTENCY_CONFLICT",
-        "Idempotency key used with different request payload",
-        { operationId: existing.operationId },
-      );
-    }
-    return { operation: existing, idempotent: true };
-  }
-
-  const operationId = clientOperationId;
-
-  const fault = getFaultConfig(providerConfig);
-  let status = PROVIDER_OPERATION_STATUS.RECEIVED;
-  let statusReason = null;
-  let responsePayload = null;
-  let providerReference = null;
-  let faultInjected = null;
-
-  const [operation] = await ProviderOperation.create(
-    [
-      {
-        providerId,
-        operationId,
-        type: PROVIDER_OPERATION_TYPES.REFUND,
-        clientOperationId,
-        merchantId,
-        amountMinor: BigInt(amountMinor),
-        currency,
-        status,
-        requestPayload,
-        idempotencyKey,
-        requestFingerprint: fingerprint,
-        isDemo,
-      },
-    ],
-    { session },
-  );
-
-  await ProviderOperation.updateOne(
-    { _id: operation._id },
-    {
-      $set: {
-        status: PROVIDER_OPERATION_STATUS.PROCESSING,
-        processingStartedAt: new Date(),
-      },
-    },
-    { session },
-  );
-
-  const faultResult = await applyFault(fault);
-
-  if (faultResult?.type === "timeout") {
-    await ProviderOperation.updateOne(
-      { _id: operation._id },
-      {
-        $set: {
-          status: PROVIDER_OPERATION_STATUS.UNKNOWN_TO_CLIENT,
-          statusReason: "Provider timeout - outcome unknown to client",
-          processingCompletedAt: new Date(),
-          faultInjected: "timeout",
-        },
-      },
-      { session },
-    );
-    const updated = await ProviderOperation.findById(operation._id)
-      .session(session)
-      .lean();
-    return { operation: updated, idempotent: false, timeout: true };
-  }
-
-  if (faultResult?.type === "decline") {
-    status = PROVIDER_OPERATION_STATUS.DECLINED;
-    statusReason = faultResult.message;
-    responsePayload = {
-      refunded: false,
-      code: faultResult.code,
-      message: faultResult.message,
-    };
-    faultInjected = "decline";
-  } else {
-    status = PROVIDER_OPERATION_STATUS.SUCCEEDED;
-    providerReference = `PROV-${randomUUID().slice(0, 12).toUpperCase()}`;
-    responsePayload = {
-      refunded: true,
-      providerReference,
-      amountMinor,
-      currency,
-      captureOperationId,
-    };
-  }
-
-  await ProviderOperation.updateOne(
-    { _id: operation._id },
-    {
-      $set: {
-        status,
-        statusReason,
-        responsePayload,
-        providerReference,
-        processingCompletedAt: new Date(),
-        faultInjected,
-      },
-    },
-    { session },
-  );
-
-  const updated = await ProviderOperation.findById(operation._id)
-    .session(session)
-    .lean();
-  return { operation: updated, idempotent: false };
-}
-
-export async function getOperation({ operationId, providerId, session }) {
-  const operation = await ProviderOperation.findOne({ operationId, providerId })
-    .session(session)
-    .lean();
   if (!operation) {
     throw new AppError(
       404,
@@ -524,32 +264,285 @@ export async function getOperation({ operationId, providerId, session }) {
       "Provider operation not found",
     );
   }
+
+  return operation;
+}
+
+function createSuccessResponse(type, body, providerReference) {
+  const response = {
+    providerReference,
+    amountMinor: body.amountMinor,
+    currency: body.currency,
+  };
+
+  if (type === AUTHORIZATION) {
+    return { authorized: true, ...response };
+  }
+
+  if (type === CAPTURE) {
+    return {
+      captured: true,
+      ...response,
+      authorizationOperationId: body.authorizationOperationId,
+    };
+  }
+
+  return {
+    refunded: true,
+    ...response,
+    captureOperationId: body.captureOperationId,
+  };
+}
+
+async function createOperation({
+  type,
+  body,
+  providerConfig,
+  session,
+  isDemo = false,
+}) {
+  if (!providerConfig?.providerId) {
+    throw new AppError(
+      500,
+      "PROVIDER_NOT_CONFIGURED",
+      "Provider configuration is missing",
+    );
+  }
+
+  const providerId = providerConfig.providerId;
+  const fingerprint = getFingerprint(type, body);
+
+  const existing = await findExisting({
+    type,
+    providerId,
+    idempotencyKey: body.idempotencyKey,
+    fingerprint,
+    session,
+  });
+
+  if (existing) {
+    return {
+      operation: existing,
+      idempotent: true,
+      timeout: existing.status === UNKNOWN_TO_CLIENT,
+    };
+  }
+
+  await validateParentOperation({
+    type,
+    body,
+    providerId,
+    session,
+  });
+
+  const operationId = body.clientOperationId;
+  const requestPayload = getRequestPayload(type, body);
+
+  try {
+    await ProviderOperation.create(
+      [
+        {
+          providerId,
+          operationId,
+          type,
+          clientOperationId: body.clientOperationId,
+          merchantId: body.merchantId,
+          amountMinor: BigInt(body.amountMinor),
+          currency: body.currency,
+          status: RECEIVED,
+          requestPayload,
+          idempotencyKey: body.idempotencyKey,
+          requestFingerprint: fingerprint,
+          isDemo: Boolean(isDemo),
+        },
+      ],
+      session ? { session } : {},
+    );
+
+  } catch (error) {
+    if (error?.code !== 11000) throw error;
+
+    const replay = await findExisting({
+      type,
+      providerId,
+      idempotencyKey: body.idempotencyKey,
+      fingerprint,
+      session,
+    });
+
+    if (replay) {
+      return {
+        operation: replay,
+        idempotent: true,
+        timeout: replay.status === UNKNOWN_TO_CLIENT,
+      };
+    }
+
+    throw new AppError(
+      409,
+      "OPERATION_CONFLICT",
+      "An operation with this identifier already exists",
+    );
+  }
+
+  await updateOperation(
+    operationId,
+    {
+      status: PROCESSING,
+      processingStartedAt: new Date(),
+    },
+    session,
+  );
+
+  const fault = getFault(providerConfig);
+  let faultResult;
+
+  try {
+    faultResult = await applyFault(fault);
+  } catch (error) {
+    await updateOperation(
+      operationId,
+      {
+        status: UNKNOWN_TO_CLIENT,
+        statusReason: "Provider processing error; reconciliation required",
+        faultInjected: fault?.type ?? null,
+        processingCompletedAt: new Date(),
+      },
+      session,
+    );
+
+    throw error;
+  }
+
+  if (faultResult?.type === "timeout") {
+    const updated = await updateOperation(
+      operationId,
+      {
+        status: UNKNOWN_TO_CLIENT,
+        statusReason: "Provider timeout; outcome unknown to client",
+        faultInjected: "timeout",
+        processingCompletedAt: new Date(),
+      },
+      session,
+    );
+
+    return {
+      operation: updated,
+      idempotent: false,
+      timeout: true,
+    };
+  }
+
+  const declined = faultResult?.type === "decline";
+  const providerReference = declined
+    ? null
+    : `PROV-${randomUUID().slice(0, 12).toUpperCase()}`;
+
+  const responsePayload = declined
+    ? {
+        declined: true,
+        code: faultResult.code,
+        message: faultResult.message,
+      }
+    : createSuccessResponse(type, body, providerReference);
+
+  const updated = await updateOperation(
+    operationId,
+    {
+      status: declined ? DECLINED : SUCCEEDED,
+      statusReason: declined ? faultResult.message : null,
+      responsePayload,
+      providerReference,
+      faultInjected: faultResult?.type ?? null,
+      processingCompletedAt: new Date(),
+    },
+    session,
+  );
+
+  return {
+    operation: updated,
+    idempotent: false,
+    timeout: false,
+  };
+}
+
+export function createAuthorization(options) {
+  return createOperation({
+    ...options,
+    type: AUTHORIZATION,
+  });
+}
+
+export function createCapture(options) {
+  return createOperation({
+    ...options,
+    type: CAPTURE,
+  });
+}
+
+export function createRefund(options) {
+  return createOperation({
+    ...options,
+    type: REFUND,
+  });
+}
+
+export async function getOperation({
+  operationId,
+  providerId,
+  session,
+}) {
+  const operation = await ProviderOperation.findOne({
+    operationId,
+    providerId,
+  })
+    .session(session ?? null)
+    .lean();
+
+  if (!operation) {
+    throw new AppError(
+      404,
+      "OPERATION_NOT_FOUND",
+      "Provider operation not found",
+    );
+  }
+
   return operation;
 }
 
 export async function listOperations({
   merchantId,
   providerId,
-  query,
+  query = {},
   session,
 }) {
   const filter = { merchantId, providerId };
+
   if (query.type) filter.type = query.type;
   if (query.status) filter.status = query.status;
+
   if (query.from || query.to) {
     filter.createdAt = {};
+
     if (query.from) filter.createdAt.$gte = new Date(query.from);
     if (query.to) filter.createdAt.$lte = new Date(query.to);
   }
 
-  const limit = Math.min(query.limit ?? 20, 100);
+  const limit = Math.min(Math.max(Number(query.limit) || 20, 1), 100);
+
   const operations = await ProviderOperation.find(filter)
     .sort({ createdAt: -1, _id: -1 })
     .limit(limit)
-    .session(session)
+    .session(session ?? null)
     .lean();
 
-  return { operations, count: operations.length };
+  return {
+    operations,
+    count: operations.length,
+  };
 }
 
-export { PROVIDER_OPERATION_TYPES, PROVIDER_OPERATION_STATUS };
+export {
+  PROVIDER_OPERATION_TYPES,
+  PROVIDER_OPERATION_STATUS,
+};

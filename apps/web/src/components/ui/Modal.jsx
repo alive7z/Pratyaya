@@ -1,118 +1,229 @@
+
 "use client";
 
 import * as React from "react";
+import * as DialogPrimitive from "@radix-ui/react-dialog";
+import { X } from "lucide-react";
 import { cn } from "../../lib/utils.js";
 
-export function Modal({ open, onOpenChange, children }) {
-  const contentRef = React.useRef(null);
-  const overlayRef = React.useRef(null);
+const ModalContext = React.createContext(null);
 
-  React.useEffect(() => {
-    if (open) {
-      document.body.style.overflow = "hidden";
-    } else {
-      document.body.style.overflow = "";
-    }
-    return () => {
-      document.body.style.overflow = "";
-    };
-  }, [open]);
+export function Modal({
+  open,
+  onOpenChange,
+  children,
+  defaultOpen = false,
+}) {
+  const [internalOpen, setInternalOpen] = React.useState(defaultOpen);
 
-  const handleOverlayClick = (e) => {
-    if (e.target === e.currentTarget) {
-      onOpenChange(false);
+  const isControlled = open !== undefined;
+  const isOpen = isControlled ? open : internalOpen;
+
+  const setOpen = React.useCallback(
+    (nextOpen) => {
+      if (!isControlled) {
+        setInternalOpen(nextOpen);
+      }
+
+      onOpenChange?.(nextOpen);
+    },
+    [isControlled, onOpenChange],
+  );
+
+  const contextValue = React.useMemo(
+    () => ({ open: isOpen, onOpenChange: setOpen }),
+    [isOpen, setOpen],
+  );
+
+  return (
+    <ModalContext.Provider value={contextValue}>
+      <DialogPrimitive.Root
+        open={isOpen}
+        onOpenChange={setOpen}
+      >
+        {children}
+      </DialogPrimitive.Root>
+    </ModalContext.Provider>
+  );
+}
+
+export function ModalTrigger({
+  asChild = false,
+  children,
+  onClick,
+  type = "button",
+  ...props
+}) {
+  const context = React.useContext(ModalContext);
+
+  const handleClick = (event) => {
+    onClick?.(event);
+
+    if (!event.defaultPrevented && !context) {
+      props.onOpenChange?.(true);
     }
   };
 
-  const handleKeyDown = React.useCallback(
-    (e) => {
-      if (e.key === "Escape") {
-        onOpenChange(false);
-      }
-    },
-    [onOpenChange],
-  );
-
-  React.useEffect(() => {
-    if (open) {
-      document.addEventListener("keydown", handleKeyDown);
-    }
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [open, handleKeyDown]);
-
-  if (!open) return null;
-
   return (
-    <div
-      ref={overlayRef}
-      className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
-      onClick={handleOverlayClick}
-      role="dialog"
-      aria-modal="true"
+    <DialogPrimitive.Trigger
+      asChild={asChild}
+      onClick={handleClick}
+      {...(!asChild ? { type } : {})}
+      {...props}
     >
-      <div
-        ref={contentRef}
-        className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
-        role="document"
+      {children}
+    </DialogPrimitive.Trigger>
+  );
+}
+
+const ModalContent = React.forwardRef(
+  (
+    {
+      className,
+      children,
+      showCloseButton = true,
+      overlayClassName,
+      ...props
+    },
+    ref,
+  ) => (
+    <DialogPrimitive.Portal>
+      <DialogPrimitive.Overlay
+        data-slot="modal-overlay"
+        className={cn(
+          "fixed inset-0 z-50",
+          "bg-black/60 backdrop-blur-[2px]",
+          "data-[state=open]:animate-in",
+          "data-[state=closed]:animate-out",
+          "data-[state=open]:fade-in-0",
+          "data-[state=closed]:fade-out-0",
+          "motion-reduce:animate-none",
+          overlayClassName,
+        )}
+      />
+
+      <DialogPrimitive.Content
+        ref={ref}
+        data-slot="modal-content"
+        className={cn(
+          "fixed left-1/2 top-1/2 z-50",
+          "flex w-[calc(100%-2rem)] max-w-2xl flex-col",
+          "max-h-[calc(100dvh-2rem)]",
+          "-translate-x-1/2 -translate-y-1/2",
+          "overflow-y-auto overscroll-contain",
+          "rounded-xl border border-slate-200",
+          "bg-white text-slate-950 shadow-2xl",
+          "dark:border-slate-800 dark:bg-slate-950 dark:text-slate-50",
+          "duration-200 ease-out",
+          "data-[state=open]:animate-in",
+          "data-[state=closed]:animate-out",
+          "data-[state=open]:fade-in-0",
+          "data-[state=closed]:fade-out-0",
+          "data-[state=open]:zoom-in-95",
+          "data-[state=closed]:zoom-out-95",
+          "focus:outline-none",
+          "motion-reduce:animate-none",
+          className,
+        )}
+        {...props}
       >
         {children}
-      </div>
-    </div>
-  );
-}
 
-export function ModalTrigger({ asChild, children, onClick }) {
-  if (asChild) {
-    return React.cloneElement(children, { onClick });
-  }
-  return <button onClick={onClick}>{children}</button>;
-}
+        {showCloseButton && (
+          <DialogPrimitive.Close
+            type="button"
+            aria-label="Close modal"
+            className={cn(
+              "absolute right-4 top-4 z-10",
+              "inline-flex h-8 w-8 items-center justify-center",
+              "rounded-md text-slate-500",
+              "transition-colors duration-200",
+              "hover:bg-slate-100 hover:text-slate-900",
+              "dark:text-slate-400",
+              "dark:hover:bg-slate-800 dark:hover:text-slate-100",
+              "focus-visible:outline-none",
+              "focus-visible:ring-2 focus-visible:ring-blue-500",
+              "focus-visible:ring-offset-2",
+              "dark:focus-visible:ring-blue-400",
+              "dark:focus-visible:ring-offset-slate-950",
+              "disabled:pointer-events-none disabled:opacity-50",
+            )}
+          >
+            <X className="h-4 w-4" aria-hidden="true" />
+          </DialogPrimitive.Close>
+        )}
+      </DialogPrimitive.Content>
+    </DialogPrimitive.Portal>
+  ),
+);
 
-export function ModalContent({ children, className }) {
+ModalContent.displayName = "ModalContent";
+
+export function ModalHeader({ className, ...props }) {
   return (
     <div
+      data-slot="modal-header"
       className={cn(
-        "bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto",
+        "flex flex-col gap-1.5",
+        "border-b border-slate-200",
+        "px-5 py-5 pr-14 sm:px-6 sm:pr-14",
+        "dark:border-slate-800",
         className,
       )}
-    >
-      {children}
-    </div>
+      {...props}
+    />
   );
 }
 
-export function ModalHeader({ children, className }) {
+const ModalTitle = React.forwardRef(
+  ({ className, ...props }, ref) => (
+    <DialogPrimitive.Title
+      ref={ref}
+      data-slot="modal-title"
+      className={cn(
+        "text-lg font-semibold leading-tight tracking-tight",
+        "text-slate-950 dark:text-slate-50",
+        "sm:text-xl",
+        className,
+      )}
+      {...props}
+    />
+  ),
+);
+
+ModalTitle.displayName = "ModalTitle";
+
+const ModalDescription = React.forwardRef(
+  ({ className, ...props }, ref) => (
+    <DialogPrimitive.Description
+      ref={ref}
+      data-slot="modal-description"
+      className={cn(
+        "text-sm leading-relaxed",
+        "text-slate-500 dark:text-slate-400",
+        className,
+      )}
+      {...props}
+    />
+  ),
+);
+
+ModalDescription.displayName = "ModalDescription";
+
+export function ModalFooter({ className, ...props }) {
   return (
     <div
+      data-slot="modal-footer"
       className={cn(
-        "flex items-center justify-between gap-4 pb-4 border-b",
+        "flex flex-col-reverse gap-2",
+        "border-t border-slate-200",
+        "px-5 py-4 sm:flex-row sm:items-center sm:justify-end sm:px-6",
+        "dark:border-slate-800",
         className,
       )}
-    >
-      {children}
-    </div>
+      {...props}
+    />
   );
 }
 
-export function ModalTitle({ children, className }) {
-  return <h2 className={cn("text-xl font-bold", className)}>{children}</h2>;
-}
-
-export function ModalDescription({ children, className }) {
-  return (
-    <p className={cn("text-sm text-gray-500 mt-1", className)}>{children}</p>
-  );
-}
-
-export function ModalFooter({ children, className }) {
-  return (
-    <div
-      className={cn(
-        "flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2 mt-6 pt-4 border-t",
-        className,
-      )}
-    >
-      {children}
-    </div>
-  );
-}
+export const ModalClose = DialogPrimitive.Close;

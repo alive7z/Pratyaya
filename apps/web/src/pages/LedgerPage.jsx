@@ -1,5 +1,11 @@
-import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+
+import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import {
   AlertTriangle,
   BookOpen,
@@ -7,11 +13,17 @@ import {
   RefreshCw,
   Scale,
   WalletCards,
+  Search,
+  ChevronLeft,
+  ChevronRight,
+  X,
 } from "lucide-react";
-import { authApi, ledgerApi } from "../lib/apiClient.js";
+import { ledgerApi } from "../lib/apiClient.js";
 import { formatMinorUnits } from "../lib/format.js";
+import { useAuth } from "../app/AuthContext.jsx";
+import { cn } from "../lib/utils.js";
 
-const tabs = [
+const TABS = [
   "Overview",
   "Accounts",
   "Journals",
@@ -19,408 +31,759 @@ const tabs = [
   "Reconciliation",
 ];
 
+const PAGE_SIZE = 20;
+
+const cardClass =
+  "rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950";
+
+const inputClass =
+  "h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm outline-none transition-colors focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-white";
+
+function rowsOf(query) {
+  return query.data?.data?.items ?? [];
+}
+
+function totalOf(query) {
+  return query.data?.data?.total ?? rowsOf(query).length;
+}
+
+function minor(value) {
+  try {
+    return BigInt(value ?? 0);
+  } catch {
+    return 0n;
+  }
+}
+
+function money(value, currency = "USD") {
+  if (value == null) return "—";
+
+  try {
+    return formatMinorUnits(String(value), currency);
+  } catch {
+    return "—";
+  }
+}
+
+function displayDate(value) {
+  if (!value) return "—";
+
+  const date = new Date(value);
+
+  return Number.isNaN(date.getTime())
+    ? "—"
+    : date.toLocaleString();
+}
+
 function Loading() {
   return (
-    <div aria-label="Loading ledger" className="grid gap-4 sm:grid-cols-3">
+    <div
+      role="status"
+      aria-label="Loading ledger"
+      className="grid gap-4 sm:grid-cols-3"
+    >
       {[1, 2, 3].map((item) => (
         <div
           key={item}
-          className="h-28 animate-pulse rounded-2xl bg-slate-200 dark:bg-slate-800"
+          className="h-28 animate-pulse rounded-xl bg-slate-200 dark:bg-slate-800"
         />
       ))}
     </div>
   );
 }
 
-function Failure({ error }) {
+function Failure({ error, onRetry }) {
+  const unauthorized = error?.status === 401;
+
   return (
-    <div role="alert" className="card border-red-200 bg-red-50 text-red-800">
-      <p className="font-semibold">Ledger data is unavailable</p>
-      <p className="mt-1 text-sm">
-        {error?.status === 401
-          ? "Start a demo session or sign in to access merchant-scoped records."
-          : error?.message}
-      </p>
-      {error?.status === 401 ? (
-        <a href="/login" className="subtle-link mt-3">
-          Open secure access
-        </a>
-      ) : null}
+    <div
+      role="alert"
+      className="rounded-xl border border-red-200 bg-red-50 p-5 text-red-800 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300"
+    >
+      <div className="flex items-start gap-3">
+        <AlertTriangle className="h-5 w-5 shrink-0" />
+
+        <div>
+          <p className="font-semibold">
+            Ledger data is unavailable
+          </p>
+          <p className="mt-1 text-sm">
+            {unauthorized
+              ? "Sign in or start a demo session to access ledger records."
+              : error?.message || "Unable to load ledger data."}
+          </p>
+
+          {unauthorized ? (
+            <Link
+              to="/login"
+              className="mt-3 inline-block text-sm font-semibold underline"
+            >
+              Sign in
+            </Link>
+          ) : (
+            <button
+              type="button"
+              onClick={onRetry}
+              className="mt-3 inline-flex items-center gap-2 text-sm font-semibold"
+            >
+              <RefreshCw className="h-4 w-4" />
+              Try again
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Empty({ text }) {
+  return (
+    <div className="mt-4 rounded-xl border border-dashed border-slate-300 px-5 py-10 text-center text-sm text-slate-500 dark:border-slate-700">
+      {text}
     </div>
   );
 }
 
 function Metric({ label, value, icon: Icon }) {
   return (
-    <div className="card">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-slate-500">{label}</p>
-        <Icon className="h-4 w-4 text-blue-600" />
+    <div className={cardClass}>
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm text-slate-500 dark:text-slate-400">
+          {label}
+        </p>
+        <Icon
+          className="h-4 w-4 shrink-0 text-blue-600 dark:text-blue-400"
+          aria-hidden="true"
+        />
       </div>
-      <p className="mt-3 text-2xl font-bold">{value}</p>
+
+      <p className="mt-3 wrap-break-word text-xl font-bold tracking-tight text-slate-950 dark:text-white">
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function Pagination({ page, total, limit = PAGE_SIZE, onPage }) {
+  const pages = Math.max(1, Math.ceil(total / limit));
+
+  if (pages <= 1) return null;
+
+  return (
+    <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+      <p className="text-xs text-slate-500 dark:text-slate-400">
+        Page {page} of {pages} · {total} records
+      </p>
+
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          disabled={page <= 1}
+          onClick={() => onPage(page - 1)}
+          className="btn-secondary"
+        >
+          <ChevronLeft className="h-4 w-4" />
+          Previous
+        </button>
+        <button
+          type="button"
+          disabled={page >= pages}
+          onClick={() => onPage(page + 1)}
+          className="btn-secondary"
+        >
+          Next
+          <ChevronRight className="h-4 w-4" />
+        </button>
+      </div>
     </div>
   );
 }
 
 export default function LedgerPage() {
+  const { auth, hasPermission } = useAuth();
+  const queryClient = useQueryClient();
+
   const [tab, setTab] = useState("Overview");
   const [currency, setCurrency] = useState("USD");
-  const [selectedJournal, setSelectedJournal] = useState(null);
-  const [selectedAccountId, setSelectedAccountId] = useState(null);
-  const [journalPage, setJournalPage] = useState(1);
   const [accountPage, setAccountPage] = useState(1);
+  const [journalPage, setJournalPage] = useState(1);
   const [searchInput, setSearchInput] = useState("");
   const [journalSearch, setJournalSearch] = useState("");
-  const queryClient = useQueryClient();
-  const auth = useQuery({
-    queryKey: ["auth", "me"],
-    queryFn: authApi.me,
-    retry: false,
-  });
+  const [selectedAccountId, setSelectedAccountId] = useState(null);
+  const [selectedJournal, setSelectedJournal] = useState(null);
+
+  const merchantId = auth?.merchantId ?? null;
+  const role = auth?.membership?.role;
+  const isAuthenticated = Boolean(auth);
+
+  const canRun =
+    role === "ADMIN" ||
+    role === "AUDITOR" ||
+    hasPermission("ledger.integrity.run");
+
   const accounts = useQuery({
-    queryKey: ["ledger", "accounts", currency, accountPage],
+    queryKey: ["ledger", "accounts", merchantId, currency, accountPage],
     queryFn: () =>
-      ledgerApi.accounts({ currency, page: accountPage, limit: 20 }),
+      ledgerApi.accounts({
+        currency,
+        page: accountPage,
+        limit: PAGE_SIZE,
+      }),
+    enabled:
+      isAuthenticated &&
+      (tab === "Accounts" || tab === "Overview"),
+    staleTime: 15000,
   });
+
   const allAccounts = useQuery({
-    queryKey: ["ledger", "accounts", currency, "all"],
-    queryFn: () => ledgerApi.accounts({ currency, limit: 100 }),
+    queryKey: ["ledger", "accounts", merchantId, currency, "summary"],
+    queryFn: () =>
+      ledgerApi.accounts({
+        currency,
+        page: 1,
+        limit: 100,
+      }),
+    enabled: isAuthenticated && tab === "Overview",
+    staleTime: 15000,
   });
+
   const journals = useQuery({
-    queryKey: ["ledger", "journals", currency, journalPage, journalSearch],
+    queryKey: [
+      "ledger",
+      "journals",
+      merchantId,
+      currency,
+      journalPage,
+      journalSearch,
+    ],
     queryFn: () =>
       ledgerApi.journals({
         currency,
         page: journalPage,
-        limit: 20,
+        limit: PAGE_SIZE,
         search: journalSearch,
       }),
+    enabled:
+      isAuthenticated &&
+      (tab === "Overview" || tab === "Journals"),
+    staleTime: 15000,
   });
+
   const accountDetail = useQuery({
-    queryKey: ["ledger", "account", selectedAccountId],
+    queryKey: ["ledger", "account", merchantId, selectedAccountId],
     queryFn: () => ledgerApi.account(selectedAccountId),
-    enabled: Boolean(selectedAccountId),
+    enabled: isAuthenticated && Boolean(selectedAccountId),
   });
+
   const accountEntries = useQuery({
-    queryKey: ["ledger", "account", selectedAccountId, "entries"],
-    queryFn: () => ledgerApi.accountEntries(selectedAccountId, { limit: 20 }),
-    enabled: Boolean(selectedAccountId),
+    queryKey: [
+      "ledger",
+      "account",
+      merchantId,
+      selectedAccountId,
+      "entries",
+    ],
+    queryFn: () =>
+      ledgerApi.accountEntries(selectedAccountId, {
+        limit: PAGE_SIZE,
+      }),
+    enabled: isAuthenticated && Boolean(selectedAccountId),
   });
+
   const reports = useQuery({
-    queryKey: ["ledger", "integrity", currency],
+    queryKey: ["ledger", "integrity", merchantId, currency],
     queryFn: () => ledgerApi.integrityReports({ currency }),
-    enabled: tab === "Integrity" || tab === "Overview",
+    enabled:
+      isAuthenticated &&
+      (tab === "Overview" || tab === "Integrity"),
   });
+
   const reconciliation = useQuery({
-    queryKey: ["ledger", "reconciliation"],
+    queryKey: ["ledger", "reconciliation", merchantId],
     queryFn: () => ledgerApi.reconciliation({ limit: 50 }),
-    enabled: tab === "Reconciliation",
+    enabled: isAuthenticated && tab === "Reconciliation",
   });
+
   const runCheck = useMutation({
     mutationFn: () => ledgerApi.runIntegrity(currency),
     onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ["ledger", "integrity"] }),
+      queryClient.invalidateQueries({
+        queryKey: ["ledger", "integrity", merchantId],
+      }),
   });
 
-  const accountRows = accounts.data?.data?.items ?? [];
-  const overviewAccounts = allAccounts.data?.data?.items ?? accountRows;
-  const accountMap = new Map(
-    overviewAccounts.map((account) => [account.id, account]),
-  );
-  const journalRows = journals.data?.data?.items ?? [];
-  const journalTotal = journals.data?.data?.total ?? journalRows.length;
-  const latestReport = (reports.data?.data?.items ?? []).find(
-    (report) => report.currency === currency || !report.currency,
-  );
-  const role = auth.data?.data?.membership?.role;
-  const canRun = role === "ADMIN" || role === "AUDITOR";
-  const totalDebits = overviewAccounts.reduce(
-    (sum, item) => sum + BigInt(item.debitMinor),
-    0n,
-  );
-  const totalCredits = overviewAccounts.reduce(
-    (sum, item) => sum + BigInt(item.creditMinor),
-    0n,
-  );
-  const error = accounts.error || journals.error;
+  const accountRows = rowsOf(accounts);
+  const journalRows = rowsOf(journals);
+  const reportRows = rowsOf(reports);
 
-  function changeCurrency(nextCurrency) {
-    setCurrency(nextCurrency);
-    setJournalPage(1);
+  const overviewAccounts = rowsOf(allAccounts);
+  const accountTotal = totalOf(allAccounts);
+  const hasCompleteSummary =
+    !allAccounts.isPending &&
+    !allAccounts.isError &&
+    overviewAccounts.length >= accountTotal;
+
+  const accountMap = useMemo(
+    () =>
+      new Map(
+        [...overviewAccounts, ...accountRows].map((account) => [
+          account.id,
+          account,
+        ]),
+      ),
+    [overviewAccounts, accountRows],
+  );
+
+  const { totalDebits, totalCredits } = useMemo(
+    () =>
+      overviewAccounts.reduce(
+        (result, account) => ({
+          totalDebits: result.totalDebits + minor(account.debitMinor),
+          totalCredits: result.totalCredits + minor(account.creditMinor),
+        }),
+        { totalDebits: 0n, totalCredits: 0n },
+      ),
+    [overviewAccounts],
+  );
+
+  const latestReport = reportRows.find(
+    (report) => !report.currency || report.currency === currency,
+  );
+
+  const changeCurrency = (value) => {
+    setCurrency(value);
     setAccountPage(1);
-    setSelectedJournal(null);
+    setJournalPage(1);
     setSelectedAccountId(null);
+    setSelectedJournal(null);
     setJournalSearch("");
     setSearchInput("");
-  }
+  };
 
-  function changeTab(nextTab) {
-    setTab(nextTab);
+  const changeTab = (value) => {
+    setTab(value);
     setSelectedJournal(null);
-    if (nextTab !== "Accounts") setSelectedAccountId(null);
-  }
+    setSelectedAccountId(null);
+  };
+
+  const refresh = () => {
+    queryClient.invalidateQueries({
+      queryKey: ["ledger"],
+    });
+  };
+
+  const activeError =
+    tab === "Overview"
+      ? accounts.error || journals.error
+      : tab === "Accounts"
+        ? accounts.error
+        : tab === "Journals"
+          ? journals.error
+          : null;
+
+  const activeLoading =
+    (tab === "Overview" &&
+      (accounts.isPending || journals.isPending)) ||
+    (tab === "Accounts" && accounts.isPending) ||
+    (tab === "Journals" && journals.isPending);
 
   return (
     <div className="space-y-6">
-      <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+      <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="eyebrow">Financial truth</p>
           <h1 className="mt-2 text-3xl font-bold tracking-tight">
             Ledger Explorer
           </h1>
-          <p className="mt-2 max-w-2xl text-sm text-slate-600 dark:text-slate-400">
-            Balances are derived from immutable posted journals. Authorization
-            and pending volume are never presented as settled funds.
+          <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-600 dark:text-slate-400">
+            Explore immutable journals, account balances, integrity
+            checks, and reconciliation records.
           </p>
         </div>
-        <label className="text-sm font-medium">
-          Currency
-          <select
-            value={currency}
-            onChange={(event) => changeCurrency(event.target.value)}
-            className="ml-2 rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900"
+
+        <div className="flex items-end gap-2">
+          <label className="flex flex-col gap-1 text-xs font-medium">
+            Currency
+            <select
+              value={currency}
+              onChange={(event) => changeCurrency(event.target.value)}
+              className={inputClass}
+            >
+              <option value="USD">USD</option>
+              <option value="INR">INR</option>
+            </select>
+          </label>
+
+          <button
+            type="button"
+            onClick={refresh}
+            aria-label="Refresh ledger"
+            className="btn-secondary h-10"
           >
-            <option>USD</option>
-            <option>INR</option>
-          </select>
-        </label>
+            <RefreshCw className="h-4 w-4" />
+          </button>
+        </div>
       </header>
 
       <div
-        className="flex gap-1 overflow-x-auto rounded-xl border border-slate-200 bg-white p-1 dark:border-slate-800 dark:bg-slate-900"
         role="tablist"
+        aria-label="Ledger sections"
+        className="flex gap-1 overflow-x-auto rounded-xl border border-slate-200 bg-white p-1 dark:border-slate-800 dark:bg-slate-900"
       >
-        {tabs.map((item) => (
+        {TABS.map((item) => (
           <button
             key={item}
+            type="button"
             role="tab"
             aria-selected={tab === item}
             onClick={() => changeTab(item)}
-            className={`whitespace-nowrap rounded-lg px-4 py-2 text-sm font-semibold ${tab === item ? "bg-blue-600 text-white" : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"}`}
+            className={cn(
+              "whitespace-nowrap rounded-lg px-4 py-2 text-sm font-medium transition-colors",
+              tab === item
+                ? "bg-blue-600 text-white"
+                : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800",
+            )}
           >
             {item}
           </button>
         ))}
       </div>
 
-      {accounts.isPending || journals.isPending ? (
+      {!isAuthenticated ? (
+        <Failure error={{ status: 401 }} />
+      ) : activeLoading ? (
         <Loading />
-      ) : error ? (
-        <Failure error={error} />
-      ) : null}
-
-      {!accounts.isPending && !error && tab === "Overview" ? (
+      ) : activeError ? (
+        <Failure error={activeError} onRetry={refresh} />
+      ) : (
         <>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <Metric
-              label="Posted journals"
-              value={journalTotal.toString()}
-              icon={BookOpen}
-            />
-            <Metric
-              label="Debit movements"
-              value={formatMinorUnits(totalDebits.toString(), currency)}
-              icon={WalletCards}
-            />
-            <Metric
-              label="Credit movements"
-              value={formatMinorUnits(totalCredits.toString(), currency)}
-              icon={Scale}
-            />
-            <Metric
-              label="Latest integrity scan"
-              value={latestReport?.status ?? "Not run"}
-              icon={
-                latestReport?.status === "PASS" ? CheckCircle2 : AlertTriangle
-              }
-            />
-          </div>
-          <section className="card">
-            <h2 className="font-semibold">Recent financial activity</h2>
-            {journalRows.length ? (
-              <JournalTable
-                rows={journalRows.slice(0, 8)}
-                onSelect={setSelectedJournal}
-                accounts={accountMap}
+          {tab === "Overview" && (
+            <>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <Metric
+                  label="Posted journals"
+                  value={String(totalOf(journals))}
+                  icon={BookOpen}
+                />
+                <Metric
+                  label="Debit movements"
+                  value={
+                    hasCompleteSummary
+                      ? money(totalDebits, currency)
+                      : "—"
+                  }
+                  icon={WalletCards}
+                />
+                <Metric
+                  label="Credit movements"
+                  value={
+                    hasCompleteSummary
+                      ? money(totalCredits, currency)
+                      : "—"
+                  }
+                  icon={Scale}
+                />
+                <Metric
+                  label="Latest integrity scan"
+                  value={
+                    reports.isPending
+                      ? "Loading..."
+                      : latestReport?.status ?? "Not run"
+                  }
+                  icon={
+                    latestReport?.status === "PASS"
+                      ? CheckCircle2
+                      : AlertTriangle
+                  }
+                />
+              </div>
+
+              {!hasCompleteSummary && !allAccounts.isPending && (
+                <p className="text-xs text-amber-700 dark:text-amber-400">
+                  Debit and credit totals are unavailable until the
+                  complete account summary can be retrieved.
+                </p>
+              )}
+
+              <section className={cardClass}>
+                <h2 className="font-semibold">
+                  Recent financial activity
+                </h2>
+
+                {journalRows.length ? (
+                  <JournalTable
+                    rows={journalRows.slice(0, 8)}
+                    onSelect={setSelectedJournal}
+                  />
+                ) : (
+                  <Empty text="No posted financial activity exists for this currency." />
+                )}
+
+                {selectedJournal && (
+                  <JournalDetail
+                    journal={selectedJournal}
+                    accounts={accountMap}
+                    onClose={() => setSelectedJournal(null)}
+                  />
+                )}
+              </section>
+            </>
+          )}
+
+          {tab === "Accounts" && (
+            <section className={cardClass}>
+              <h2 className="font-semibold">Chart of accounts</h2>
+
+              {accountRows.length ? (
+                <div className="mt-4 overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500 dark:border-slate-800">
+                      <tr>
+                        {[
+                          "Account",
+                          "Type",
+                          "Debit",
+                          "Credit",
+                          "Net balance",
+                          "Status",
+                        ].map((heading) => (
+                          <th
+                            key={heading}
+                            scope="col"
+                            className="whitespace-nowrap px-3 py-3 font-semibold"
+                          >
+                            {heading}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {accountRows.map((row) => (
+                        <tr
+                          key={row.id}
+                          className={cn(
+                            "border-b border-slate-100 transition-colors dark:border-slate-800",
+                            "hover:bg-slate-50 dark:hover:bg-slate-900",
+                            selectedAccountId === row.id &&
+                              "bg-blue-50 dark:bg-blue-950/20",
+                          )}
+                        >
+                          <td className="px-3 py-3">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedAccountId(row.id)}
+                              className="text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                            >
+                              <span className="block font-semibold text-blue-700 dark:text-blue-400">
+                                {row.accountName}
+                              </span>
+                              <span className="block font-mono text-xs text-slate-500">
+                                {row.accountCode}
+                              </span>
+                            </button>
+                          </td>
+                          <td className="px-3 py-3">{row.accountType}</td>
+                          <td className="whitespace-nowrap px-3 py-3">
+                            {money(row.debitMinor, row.currency)}
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-3">
+                            {money(row.creditMinor, row.currency)}
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-3 font-semibold">
+                            {money(row.netMinor, row.currency)}
+                          </td>
+                          <td className="px-3 py-3">{row.status}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <Empty text="No ledger accounts exist for this currency." />
+              )}
+
+              <Pagination
+                page={accountPage}
+                total={totalOf(accounts)}
+                onPage={setAccountPage}
               />
-            ) : (
-              <Empty text="No posted financial movement exists for this currency." />
-            )}
-          </section>
+
+              {selectedAccountId && (
+                <AccountDetail
+                  account={accountDetail.data?.data}
+                  entries={rowsOf(accountEntries)}
+                  pending={
+                    accountDetail.isPending || accountEntries.isPending
+                  }
+                  error={accountDetail.error || accountEntries.error}
+                  onClose={() => setSelectedAccountId(null)}
+                />
+              )}
+            </section>
+          )}
+
+          {tab === "Journals" && (
+            <section className={cardClass}>
+              <div className="flex flex-wrap items-end justify-between gap-4">
+                <div>
+                  <h2 className="font-semibold">Immutable journals</h2>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Search by journal reference or source event.
+                  </p>
+                </div>
+
+                <form
+                  className="flex max-w-full items-center gap-2"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    setJournalPage(1);
+                    setJournalSearch(searchInput.trim());
+                  }}
+                >
+                  <input
+                    aria-label="Search journals"
+                    value={searchInput}
+                    onChange={(event) =>
+                      setSearchInput(event.target.value)
+                    }
+                    placeholder="Reference or source ID"
+                    className={cn(inputClass, "min-w-0 w-48 sm:w-64")}
+                  />
+                  <button type="submit" className="btn-secondary">
+                    <Search className="h-4 w-4" />
+                    Search
+                  </button>
+                </form>
+              </div>
+
+              {journalRows.length ? (
+                <JournalTable
+                  rows={journalRows}
+                  onSelect={setSelectedJournal}
+                />
+              ) : (
+                <Empty text="No journals match the selected filters." />
+              )}
+
+              <Pagination
+                page={journalPage}
+                total={totalOf(journals)}
+                onPage={setJournalPage}
+              />
+
+              {selectedJournal && (
+                <JournalDetail
+                  journal={selectedJournal}
+                  accounts={accountMap}
+                  onClose={() => setSelectedJournal(null)}
+                />
+              )}
+            </section>
+          )}
+
+          {tab === "Integrity" && (
+            <IntegrityPanel
+              reports={reportRows}
+              pending={reports.isPending}
+              error={reports.error}
+              canRun={canRun}
+              runCheck={runCheck}
+              currency={currency}
+              onRetry={() => reports.refetch()}
+            />
+          )}
+
+          {tab === "Reconciliation" && (
+            <ReconciliationPanel query={reconciliation} />
+          )}
         </>
-      ) : null}
-
-      {!accounts.isPending && !error && tab === "Accounts" ? (
-        <section className="card overflow-hidden">
-          <h2 className="font-semibold">Chart of accounts</h2>
-          {accountRows.length ? (
-            <div className="mt-4 overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="text-xs uppercase text-slate-500">
-                  <tr>
-                    <th className="py-3">Account</th>
-                    <th>Type</th>
-                    <th>Debit</th>
-                    <th>Credit</th>
-                    <th>Net balance</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {accountRows.map((row) => (
-                    <tr
-                      key={row.id}
-                      onClick={() => setSelectedAccountId(row.id)}
-                      className={`cursor-pointer border-t border-slate-100 hover:bg-blue-50 dark:border-slate-800 dark:hover:bg-blue-950/20 ${selectedAccountId === row.id ? "bg-blue-50 dark:bg-blue-950/20" : ""}`}
-                    >
-                      <td className="py-3 pr-5">
-                        <p className="font-semibold">{row.accountName}</p>
-                        <p className="font-mono text-xs text-slate-500">
-                          {row.accountCode}
-                        </p>
-                      </td>
-                      <td>{row.accountType}</td>
-                      <td>{formatMinorUnits(row.debitMinor, row.currency)}</td>
-                      <td>{formatMinorUnits(row.creditMinor, row.currency)}</td>
-                      <td className="font-semibold">
-                        {formatMinorUnits(row.netMinor, row.currency)}
-                      </td>
-                      <td>{row.status}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <Empty text="No ledger accounts have been created for this currency." />
-          )}
-          <Pagination
-            page={accountPage}
-            total={accounts.data?.data?.total ?? accountRows.length}
-            limit={20}
-            onPage={setAccountPage}
-          />
-          {selectedAccountId ? (
-            <AccountDetail
-              account={accountDetail.data?.data}
-              entries={accountEntries.data?.data?.items ?? []}
-              pending={accountDetail.isPending || accountEntries.isPending}
-              error={accountDetail.error || accountEntries.error}
-              onClose={() => setSelectedAccountId(null)}
-            />
-          ) : null}
-        </section>
-      ) : null}
-
-      {!journals.isPending && !error && tab === "Journals" ? (
-        <section className="card">
-          <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
-            <div>
-              <h2 className="font-semibold">Immutable journals</h2>
-              <p className="mt-1 text-xs text-slate-500">
-                Search by journal reference or source event identifier.
-              </p>
-            </div>
-            <form
-              className="flex gap-2"
-              onSubmit={(event) => {
-                event.preventDefault();
-                setJournalPage(1);
-                setJournalSearch(searchInput.trim());
-              }}
-            >
-              <input
-                aria-label="Search journals"
-                value={searchInput}
-                onChange={(event) => setSearchInput(event.target.value)}
-                placeholder="JRN-… or source ID"
-                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
-              />
-              <button className="btn-secondary" type="submit">
-                Search
-              </button>
-            </form>
-          </div>
-          {journalRows.length ? (
-            <JournalTable
-              rows={journalRows}
-              onSelect={setSelectedJournal}
-              accounts={accountMap}
-            />
-          ) : (
-            <Empty text="No journals match this currency and search." />
-          )}
-          <Pagination
-            page={journalPage}
-            total={journalTotal}
-            limit={20}
-            onPage={setJournalPage}
-          />
-          {selectedJournal ? (
-            <JournalDetail
-              journal={selectedJournal}
-              accounts={accountMap}
-              onClose={() => setSelectedJournal(null)}
-            />
-          ) : null}
-        </section>
-      ) : null}
-
-      {tab === "Integrity" ? (
-        <IntegrityPanel
-          reports={reports.data?.data?.items ?? []}
-          pending={reports.isPending}
-          canRun={canRun}
-          runCheck={runCheck}
-          currency={currency}
-        />
-      ) : null}
-      {tab === "Reconciliation" ? (
-        <ReconciliationPanel query={reconciliation} />
-      ) : null}
+      )}
     </div>
   );
 }
+
 
 function JournalTable({ rows, onSelect }) {
   return (
     <div className="mt-4 overflow-x-auto">
       <table className="w-full text-left text-sm">
-        <thead className="text-xs uppercase text-slate-500">
+        <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500 dark:border-slate-800">
           <tr>
-            <th className="py-3">Reference</th>
-            <th>Event</th>
-            <th>Debit</th>
-            <th>Credit</th>
-            <th>Currency</th>
-            <th>Posted</th>
+            {[
+              "Reference",
+              "Event",
+              "Source",
+              "Debit",
+              "Credit",
+              "Currency",
+              "Posted",
+            ].map((heading) => (
+              <th
+                key={heading}
+                scope="col"
+                className="whitespace-nowrap px-3 py-3 font-semibold"
+              >
+                {heading}
+              </th>
+            ))}
           </tr>
         </thead>
         <tbody>
           {rows.map((journal) => {
-            const debit = journal.entries
-              .filter((e) => e.direction === "DEBIT")
-              .reduce((sum, e) => sum + BigInt(e.amountMinor), 0n);
-            const credit = journal.entries
-              .filter((e) => e.direction === "CREDIT")
-              .reduce((sum, e) => sum + BigInt(e.amountMinor), 0n);
+            const entries = journal.entries ?? [];
+
+            const debit = entries.reduce(
+              (sum, entry) =>
+                entry.direction === "DEBIT"
+                  ? sum + minor(entry.amountMinor)
+                  : sum,
+              0n,
+            );
+
+            const credit = entries.reduce(
+              (sum, entry) =>
+                entry.direction === "CREDIT"
+                  ? sum + minor(entry.amountMinor)
+                  : sum,
+              0n,
+            );
+
             return (
               <tr
                 key={journal.id}
-                onClick={() => onSelect(journal)}
-                className="cursor-pointer border-t border-slate-100 hover:bg-blue-50 dark:border-slate-800 dark:hover:bg-blue-950/20"
+                className="border-b border-slate-100 transition-colors hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-900"
               >
-                <td className="py-3 pr-4 font-mono text-xs text-blue-700">
-                  {journal.journalReference}
+                <td className="px-3 py-3">
+                  <button
+                    type="button"
+                    onClick={() => onSelect(journal)}
+                    className="font-mono text-xs font-semibold text-blue-700 hover:underline dark:text-blue-400"
+                  >
+                    {journal.journalReference}
+                  </button>
                 </td>
-                <td>{journal.eventType}</td>
-                <td className="font-mono text-xs text-slate-500">
-                  {journal.paymentId ?? journal.sourceId}
+                <td className="whitespace-nowrap px-3 py-3">
+                  {journal.eventType}
                 </td>
-                <td>{formatMinorUnits(debit.toString(), journal.currency)}</td>
-                <td>{formatMinorUnits(credit.toString(), journal.currency)}</td>
-                <td>{journal.currency}</td>
-                <td>{new Date(journal.postedAt).toLocaleString()}</td>
+                <td className="max-w-44 truncate px-3 py-3 font-mono text-xs text-slate-500">
+                  {journal.paymentId ?? journal.sourceId ?? "—"}
+                </td>
+                <td className="whitespace-nowrap px-3 py-3">
+                  {entries.length
+                    ? money(debit, journal.currency)
+                    : "—"}
+                </td>
+                <td className="whitespace-nowrap px-3 py-3">
+                  {entries.length
+                    ? money(credit, journal.currency)
+                    : "—"}
+                </td>
+                <td className="px-3 py-3">
+                  {journal.currency}
+                </td>
+                <td className="whitespace-nowrap px-3 py-3 text-xs text-slate-500">
+                  {displayDate(journal.postedAt)}
+                </td>
               </tr>
             );
           })}
@@ -430,125 +793,272 @@ function JournalTable({ rows, onSelect }) {
   );
 }
 
-function JournalDetail({ journal, accounts = new Map(), onClose }) {
+function JournalDetail({ journal, accounts, onClose }) {
   return (
-    <div className="mt-5 rounded-2xl border border-blue-200 bg-blue-50 p-5 dark:border-blue-900 dark:bg-blue-950/20">
-      <div className="flex justify-between">
-        <div>
-          <p className="font-mono text-xs text-blue-700">
+    <div className="mt-5 rounded-xl border border-blue-200 bg-blue-50/60 p-5 dark:border-blue-900 dark:bg-blue-950/20">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <p className="break-all font-mono text-xs text-blue-700 dark:text-blue-400">
             {journal.journalReference}
           </p>
-          <h3 className="mt-1 font-semibold">Debit / credit breakdown</h3>
-          <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">
-            Source: {journal.sourceType} ·{" "}
-            {journal.paymentId ?? journal.sourceId}
+          <h3 className="mt-1 font-semibold">
+            Debit / credit breakdown
+          </h3>
+          <p className="mt-1 break-all text-xs text-slate-500">
+            Source: {journal.sourceType ?? "—"} ·{" "}
+            {journal.paymentId ?? journal.sourceId ?? "—"}
           </p>
         </div>
         <button
-          className="text-sm font-semibold text-blue-700"
+          type="button"
           onClick={onClose}
+          aria-label="Close journal details"
+          className="text-slate-500 hover:text-slate-900 dark:hover:text-white"
         >
-          Close
+          <X className="h-4 w-4" />
         </button>
       </div>
+
       <div className="mt-4 space-y-2">
-        {journal.entries.map((entry, index) => (
-          <div
-            key={`${entry.accountId}-${index}`}
-            className="grid grid-cols-[1fr_auto_auto] gap-4 rounded-xl bg-white p-3 text-sm dark:bg-slate-900"
-          >
-            <span className="text-xs">
-              <strong className="block">
-                {accounts.get(entry.accountId)?.accountName ?? "Account"}
-              </strong>
-              <span className="font-mono text-slate-500">
-                {accounts.get(entry.accountId)?.accountCode ?? entry.accountId}
+        {(journal.entries ?? []).map((entry, index) => {
+          const account = accounts.get(entry.accountId);
+
+          return (
+            <div
+              key={`${entry.accountId}-${index}`}
+              className="grid gap-2 rounded-lg bg-white p-3 text-sm dark:bg-slate-900 sm:grid-cols-[1fr_auto_auto] sm:items-center sm:gap-4"
+            >
+              <div className="min-w-0">
+                <p className="font-semibold">
+                  {account?.accountName ?? "Account"}
+                </p>
+                <p className="break-all font-mono text-xs text-slate-500">
+                  {account?.accountCode ?? entry.accountId}
+                </p>
+              </div>
+              <span className="text-xs font-medium">
+                {entry.direction}
               </span>
-            </span>
-            <span>{entry.direction}</span>
-            <strong>
-              {formatMinorUnits(entry.amountMinor, journal.currency)}
-            </strong>
-          </div>
-        ))}
+              <strong>
+                {money(entry.amountMinor, journal.currency)}
+              </strong>
+            </div>
+          );
+        })}
       </div>
-      <p className="mt-3 text-xs text-slate-500">
-        Posted journals are immutable. Corrections require linked compensating
-        journals.
+
+      <p className="mt-4 text-xs leading-relaxed text-slate-500">
+        Posted journals are immutable. Corrections require linked
+        compensating journals.
       </p>
     </div>
   );
 }
 
-function IntegrityPanel({ reports, pending, canRun, runCheck, currency }) {
-  const latest = reports[0];
+function AccountDetail({
+  account,
+  entries,
+  pending,
+  error,
+  onClose,
+}) {
+  return (
+    <div className="mt-5 rounded-xl border border-blue-200 bg-blue-50/60 p-5 dark:border-blue-900 dark:bg-blue-950/20">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-400">
+            Account detail
+          </p>
+          <h3 className="mt-1 font-semibold">
+            {account?.accountName ?? "Account"}
+          </h3>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close account details"
+          className="text-slate-500 hover:text-slate-900 dark:hover:text-white"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      {pending ? (
+        <div className="mt-4">
+          <Loading />
+        </div>
+      ) : error ? (
+        <p role="alert" className="mt-4 text-sm text-red-600">
+          {error.message}
+        </p>
+      ) : (
+        <>
+          {account && (
+            <dl className="mt-4 grid gap-4 text-sm sm:grid-cols-4">
+              {[
+                ["Code", account.accountCode],
+                ["Type", account.accountType],
+                [
+                  "Debit",
+                  money(account.debitMinor, account.currency),
+                ],
+                [
+                  "Net balance",
+                  money(account.netMinor, account.currency),
+                ],
+              ].map(([label, value]) => (
+                <div key={label}>
+                  <dt className="text-xs text-slate-500">
+                    {label}
+                  </dt>
+                  <dd className="mt-1 break-all font-medium">
+                    {value ?? "—"}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          )}
+
+          <div className="mt-5 space-y-2">
+            {entries.length ? (
+              entries.map((entry, index) => (
+                <div
+                  key={`${entry.journalId}-${index}`}
+                  className="grid gap-2 rounded-lg bg-white p-3 text-xs dark:bg-slate-900 sm:grid-cols-4"
+                >
+                  <span className="break-all font-mono">
+                    {entry.journalReference}
+                  </span>
+                  <span>{entry.eventType}</span>
+                  <span>{entry.direction}</span>
+                  <strong>
+                    {money(
+                      entry.amountMinor,
+                      account?.currency,
+                    )}
+                  </strong>
+                </div>
+              ))
+            ) : (
+              <Empty text="No posted entries use this account." />
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function IntegrityPanel({
+  reports,
+  pending,
+  error,
+  canRun,
+  runCheck,
+  currency,
+  onRetry,
+}) {
+  const latest = reports.find(
+    (report) => !report.currency || report.currency === currency,
+  );
+
   return (
     <section className="space-y-4">
-      <div className="card flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+      <div className={cn(cardClass, "flex flex-wrap items-center justify-between gap-4")}>
         <div>
-          <p className="eyebrow">Pratyaya Ledger Integrity Guardian</p>
+          <p className="eyebrow">
+            Pratyaya Ledger Integrity Guardian
+          </p>
           <h2 className="mt-2 text-xl font-bold">
             {latest?.status ?? "No verification run"}
           </h2>
           <p className="mt-1 text-sm text-slate-500">
-            A pass covers only the checks and records examined.
+            Verification results cover only the checks and records examined.
           </p>
         </div>
+
         {canRun ? (
           <button
-            className="btn-primary"
+            type="button"
             disabled={runCheck.isPending}
             onClick={() => runCheck.mutate()}
+            className="btn-primary"
           >
             <RefreshCw
-              className={`h-4 w-4 ${runCheck.isPending ? "animate-spin" : ""}`}
+              className={cn(
+                "h-4 w-4",
+                runCheck.isPending && "animate-spin",
+              )}
             />
-            Run verification
+            {runCheck.isPending
+              ? "Verifying..."
+              : "Run verification"}
           </button>
         ) : (
           <p className="text-xs text-slate-500">
-            Admin or auditor permission is required to run checks.
+            Administrator or auditor access required.
           </p>
         )}
       </div>
+
+      {runCheck.isError && (
+        <Failure
+          error={runCheck.error}
+          onRetry={() => runCheck.mutate()}
+        />
+      )}
+
       {pending ? (
         <Loading />
+      ) : error ? (
+        <Failure error={error} onRetry={onRetry} />
       ) : latest ? (
-        <div className="card">
+        <div className={cardClass}>
           <div className="grid gap-3 sm:grid-cols-3">
             <Metric
               label="Passed"
-              value={String(latest.summary.passed)}
+              value={String(latest.summary?.passed ?? 0)}
               icon={CheckCircle2}
             />
             <Metric
               label="Failed"
-              value={String(latest.summary.failed)}
+              value={String(latest.summary?.failed ?? 0)}
               icon={AlertTriangle}
             />
             <Metric
               label="Inconclusive"
-              value={String(latest.summary.inconclusive)}
+              value={String(latest.summary?.inconclusive ?? 0)}
               icon={RefreshCw}
             />
           </div>
-          <div className="mt-5 space-y-2">
-            {latest.checks.map((check) => (
+
+          <div className="mt-5 space-y-3">
+            {(latest.checks ?? []).map((check) => (
               <div
                 key={check.checkId}
-                className="rounded-xl border border-slate-200 p-4 dark:border-slate-800"
+                className="rounded-lg border border-slate-200 p-4 dark:border-slate-800"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="font-semibold">{check.checkName}</p>
+                  <p className="text-sm font-semibold">
+                    {check.checkName}
+                  </p>
                   <span
-                    className={`rounded-full px-2 py-1 text-xs font-bold ${check.status === "PASS" ? "bg-emerald-100 text-emerald-700" : check.status === "FAIL" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"}`}
+                    className={cn(
+                      "rounded-full px-2.5 py-1 text-xs font-semibold",
+                      check.status === "PASS"
+                        ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
+                        : check.status === "FAIL"
+                          ? "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300"
+                          : "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300",
+                    )}
                   >
                     {check.status}
                   </span>
                 </div>
-                <p className="mt-2 text-xs text-slate-500">
-                  {check.affectedRecords} affected · {check.severity} ·{" "}
-                  {check.remediation}
+                <p className="mt-2 text-xs leading-relaxed text-slate-500">
+                  {check.affectedRecords ?? 0} affected ·{" "}
+                  {check.severity ?? "Unknown severity"} ·{" "}
+                  {check.remediation ?? "No remediation provided"}
                 </p>
               </div>
             ))}
@@ -563,16 +1073,30 @@ function IntegrityPanel({ reports, pending, canRun, runCheck, currency }) {
 
 function ReconciliationPanel({ query }) {
   if (query.isPending) return <Loading />;
-  if (query.error) return <Failure error={query.error} />;
-  const rows = query.data?.data?.items ?? [];
+
+  if (query.error) {
+    return (
+      <Failure
+        error={query.error}
+        onRetry={() => query.refetch()}
+      />
+    );
+  }
+
+  const rows = rowsOf(query);
   const summary = query.data?.data?.summary ?? {};
+
   return (
-    <section className="card">
-      <h2 className="font-semibold">Reconciliation workspace</h2>
-      <p className="mt-1 text-xs text-amber-700">
-        Provider comparison records are trusted synthetic fixtures until live
+    <section className={cardClass}>
+      <h2 className="font-semibold">
+        Reconciliation workspace
+      </h2>
+
+      <p className="mt-2 text-xs leading-relaxed text-amber-700 dark:text-amber-400">
+        Provider comparison records use synthetic fixtures until
         simulator integration is enabled.
       </p>
+
       <div className="mt-4 flex flex-wrap gap-2">
         {Object.entries(summary).map(([status, count]) => (
           <span
@@ -583,36 +1107,47 @@ function ReconciliationPanel({ query }) {
           </span>
         ))}
       </div>
+
       {rows.length ? (
-        <div className="mt-4 space-y-3">
+        <div className="mt-5 space-y-3">
           {rows.map((row) => (
             <div
               key={row.id}
-              className="grid gap-3 rounded-xl border border-slate-200 p-4 text-sm sm:grid-cols-4 dark:border-slate-800"
+              className="grid gap-4 rounded-xl border border-slate-200 p-4 text-sm dark:border-slate-800 sm:grid-cols-2 lg:grid-cols-4"
             >
               <div>
-                <p className="text-xs text-slate-500">Provider reference</p>
-                <p className="font-mono">
+                <p className="text-xs text-slate-500">
+                  Provider reference
+                </p>
+                <p className="mt-1 break-all font-mono text-xs">
                   {row.providerReference ?? "Missing"}
                 </p>
               </div>
               <div>
-                <p className="text-xs text-slate-500">Internal / external</p>
-                <p>
+                <p className="text-xs text-slate-500">
+                  Internal / external
+                </p>
+                <p className="mt-1">
                   {row.internalPaymentStatus ?? "—"} /{" "}
                   {row.externalProviderStatus ?? "—"}
                 </p>
               </div>
               <div>
-                <p className="text-xs text-slate-500">Expected / observed</p>
-                <p>
-                  {formatMinorUnits(row.expectedAmountMinor, row.currency)} /{" "}
-                  {formatMinorUnits(row.observedAmountMinor, row.currency)}
+                <p className="text-xs text-slate-500">
+                  Expected / observed
+                </p>
+                <p className="mt-1">
+                  {money(row.expectedAmountMinor, row.currency)} /{" "}
+                  {money(row.observedAmountMinor, row.currency)}
                 </p>
               </div>
               <div>
-                <p className="text-xs text-slate-500">Status</p>
-                <p className="font-semibold">{row.status}</p>
+                <p className="text-xs text-slate-500">
+                  Status
+                </p>
+                <p className="mt-1 font-semibold">
+                  {row.status}
+                </p>
               </div>
             </div>
           ))}
@@ -621,119 +1156,5 @@ function ReconciliationPanel({ query }) {
         <Empty text="No reconciliation records are available." />
       )}
     </section>
-  );
-}
-
-function Pagination({ page, total, limit, onPage }) {
-  const pages = Math.max(1, Math.ceil(total / limit));
-  if (pages <= 1) return null;
-  return (
-    <div className="mt-4 flex items-center justify-between gap-3 text-sm">
-      <p className="text-xs text-slate-500">
-        Page {page} of {pages} · {total} records
-      </p>
-      <div className="flex gap-2">
-        <button
-          className="btn-secondary"
-          disabled={page <= 1}
-          onClick={() => onPage(page - 1)}
-        >
-          Previous
-        </button>
-        <button
-          className="btn-secondary"
-          disabled={page >= pages}
-          onClick={() => onPage(page + 1)}
-        >
-          Next
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function AccountDetail({ account, entries, pending, error, onClose }) {
-  return (
-    <div className="mt-5 rounded-2xl border border-blue-200 bg-blue-50 p-5 dark:border-blue-900 dark:bg-blue-950/20">
-      <div className="flex justify-between gap-4">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">
-            Account detail
-          </p>
-          <h3 className="mt-1 font-semibold">
-            {account?.accountName ?? "Account"}
-          </h3>
-        </div>
-        <button
-          className="text-sm font-semibold text-blue-700"
-          onClick={onClose}
-        >
-          Close
-        </button>
-      </div>
-      {pending ? (
-        <p className="mt-4 text-sm text-slate-500">Loading account activity…</p>
-      ) : error ? (
-        <p role="alert" className="mt-4 text-sm text-red-700">
-          {error.message}
-        </p>
-      ) : (
-        <>
-          {account ? (
-            <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-4">
-              <div>
-                <dt className="text-xs text-slate-500">Code</dt>
-                <dd className="font-mono">{account.accountCode}</dd>
-              </div>
-              <div>
-                <dt className="text-xs text-slate-500">Type</dt>
-                <dd>{account.accountType}</dd>
-              </div>
-              <div>
-                <dt className="text-xs text-slate-500">Debit</dt>
-                <dd>
-                  {formatMinorUnits(account.debitMinor, account.currency)}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-xs text-slate-500">Net balance</dt>
-                <dd className="font-semibold">
-                  {formatMinorUnits(account.netMinor, account.currency)}
-                </dd>
-              </div>
-            </dl>
-          ) : null}
-          <div className="mt-4 space-y-2">
-            {entries.length ? (
-              entries.map((entry, index) => (
-                <div
-                  key={`${entry.journalId}-${index}`}
-                  className="grid gap-2 rounded-xl bg-white p-3 text-xs sm:grid-cols-4 dark:bg-slate-900"
-                >
-                  <span className="font-mono">{entry.journalReference}</span>
-                  <span>{entry.eventType}</span>
-                  <span>{entry.direction}</span>
-                  <strong>
-                    {formatMinorUnits(entry.amountMinor, account?.currency)}
-                  </strong>
-                </div>
-              ))
-            ) : (
-              <p className="text-sm text-slate-500">
-                No posted entries use this account.
-              </p>
-            )}
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-function Empty({ text }) {
-  return (
-    <div className="mt-4 rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500 dark:border-slate-700">
-      {text}
-    </div>
   );
 }
