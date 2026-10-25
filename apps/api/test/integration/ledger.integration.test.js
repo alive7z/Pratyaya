@@ -36,6 +36,10 @@ import { createPayment } from "../../src/modules/payments/payment.service.js";
 import { Refund } from "../../src/modules/payments/refund.model.js";
 import { createRefundService } from "../../src/modules/payments/refund.service.js";
 import { RiskDecision } from "../../src/modules/risk/risk-decision.model.js";
+import {
+  clearProviderFaults,
+  setProviderFaults,
+} from "../../src/modules/sandbox/sandbox.service.js";
 
 const enabled = process.env.RUN_INTEGRATION_TESTS === "1";
 const logger = { info() {}, warn() {}, error() {} };
@@ -235,12 +239,142 @@ describe.skipIf(!enabled)("MongoDB ledger transactions", () => {
       }),
     ).rejects.toThrow("Injected failure after risk decision");
 
-    expect(
-      await Payment.countDocuments({ merchantId, reference }),
-    ).toBe(0);
-    expect(
-      await RiskDecision.countDocuments({ merchantId }),
-    ).toBe(0);
+    expect(await Payment.countDocuments({ merchantId, reference })).toBe(0);
+    expect(await RiskDecision.countDocuments({ merchantId })).toBe(0);
+  });
+
+  it("durably attaches the demo merchant fault to the created payment", async () => {
+    const auth = {
+      merchantId,
+      role: "MERCHANT",
+      userId: new mongoose.Types.ObjectId(),
+      isDemo: true,
+    };
+    await setProviderFaults({
+      auth,
+      config,
+      body: {
+        enabled: true,
+        rules: [{ type: "timeout", enabled: true, delayMs: 25 }],
+      },
+    });
+
+    try {
+      const result = await createPayment({
+        auth,
+        body: {
+          amountMinor: "50000",
+          currency: "USD",
+          customerReference: "FAULT-TEST",
+          merchantReference: `FAULT-${Date.now()}`,
+        },
+        req: {
+          get(name) {
+            return name.toLowerCase() === "idempotency-key"
+              ? `fault-${Date.now()}-${String(merchantId)}`
+              : undefined;
+          },
+        },
+      });
+
+      const payment = await Payment.findById(result.payment.id)
+        .select("+simulationFault")
+        .lean();
+      expect(payment.simulationFault).toMatchObject({
+        type: "timeout",
+        enabled: true,
+        delayMs: 25,
+      });
+      expect(result.payment.simulationFault).toBeUndefined();
+    } finally {
+      await clearProviderFaults({ auth, config });
+    }
+  });
+
+  it("passes a scoped demo decline through the real payment orchestrator", async () => {
+    const auth = {
+      merchantId,
+      role: "MERCHANT",
+      userId: new mongoose.Types.ObjectId(),
+      isDemo: true,
+    };
+    await setProviderFaults({
+      auth,
+      config,
+      body: {
+        enabled: true,
+        rules: [
+          {
+            type: "decline",
+            enabled: true,
+            code: "SYNTHETIC_DECLINE",
+            message: "Synthetic decline test",
+          },
+        ],
+      },
+    });
+
+    try {
+      const created = await createPayment({
+        auth,
+        body: {
+          amountMinor: "50000",
+          currency: "USD",
+          customerReference: "DECLINE-TEST",
+          merchantReference: `DECLINE-${Date.now()}`,
+        },
+        req: {
+          get(name) {
+            return name.toLowerCase() === "idempotency-key"
+              ? `decline-${Date.now()}-${String(merchantId)}`
+              : undefined;
+          },
+        },
+      });
+      await Payment.updateOne(
+        { _id: created.payment.id, merchantId },
+        { $set: { status: PAYMENT_STATUS.QUEUED } },
+      );
+
+      let providerPayload;
+      const orchestrator = await createPaymentOrchestratorService(
+        config,
+        logger,
+        {
+          providerClient: {
+            async authorize(payload) {
+              providerPayload = payload;
+              return {
+                data: {
+                  status: "DECLINED",
+                  operationId: payload.clientOperationId,
+                  statusReason: "Synthetic decline test",
+                  faultInjected: payload.simulationFault?.type,
+                },
+              };
+            },
+          },
+        },
+      );
+      const initiated = await orchestrator.initiateAuthorization({
+        auth,
+        paymentId: created.payment.id,
+        idempotencyKey: `decline-${created.payment.id}`,
+      });
+      const completed = await orchestrator.processAuthorization({
+        auth,
+        providerOperationId: String(initiated.providerOperation._id),
+      });
+
+      expect(providerPayload.simulationFault).toMatchObject({
+        type: "decline",
+        code: "SYNTHETIC_DECLINE",
+      });
+      expect(completed.payment.status).toBe(PAYMENT_STATUS.FAILED);
+      expect(completed.providerOperation.faultInjected).toBe("decline");
+    } finally {
+      await clearProviderFaults({ auth, config });
+    }
   });
 
   it("makes sequential and concurrent duplicate source events idempotent", async () => {
@@ -412,9 +546,7 @@ describe.skipIf(!enabled)("MongoDB ledger transactions", () => {
       providerOperationId: operationId,
     });
     expect(reconciled.payment.status).toBe(PAYMENT_STATUS.AUTHORIZED);
-    expect(reconciled.providerOperation.state).toBe(
-      OPERATION_STATES.SUCCEEDED,
-    );
+    expect(reconciled.providerOperation.state).toBe(OPERATION_STATES.SUCCEEDED);
     expect(dispatchedOperationId).toBe(reconciledOperationId);
     expect(
       await OutboxEvent.countDocuments({
