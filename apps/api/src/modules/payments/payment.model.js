@@ -1,4 +1,3 @@
-
 import mongoose from "mongoose";
 import { PAYMENT_STATUS, SUPPORTED_CURRENCIES } from "@pratyaya/shared";
 
@@ -93,6 +92,12 @@ const paymentSchema = new Schema(
       default: undefined,
     },
 
+    simulationFault: {
+      type: Schema.Types.Mixed,
+      default: null,
+      select: false,
+    },
+
     createdByUserId: {
       type: Schema.Types.ObjectId,
       ref: "User",
@@ -145,7 +150,9 @@ paymentSchema.path("metadata").validate({
 
     try {
       const serialized = JSON.stringify(value);
-      return serialized !== undefined && Buffer.byteLength(serialized) <= 16_384;
+      return (
+        serialized !== undefined && Buffer.byteLength(serialized) <= 16_384
+      );
     } catch {
       return false;
     }
@@ -158,19 +165,12 @@ paymentSchema.pre("validate", function () {
   const captured = this.capturedMinor;
   const refunded = this.refundedMinor;
 
-  if (
-    authorized == null ||
-    captured == null ||
-    refunded == null
-  ) {
+  if (authorized == null || captured == null || refunded == null) {
     return;
   }
 
   if (authorized <= 0n) {
-    this.invalidate(
-      "amountMinor",
-      "Payment amount must be greater than zero",
-    );
+    this.invalidate("amountMinor", "Payment amount must be greater than zero");
   }
 
   if (captured < 0n || captured > authorized) {
