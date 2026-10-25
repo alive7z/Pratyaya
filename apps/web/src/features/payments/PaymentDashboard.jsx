@@ -1,4 +1,3 @@
-
 import { useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -15,7 +14,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "../../app/AuthContext.jsx";
 import { apiClient } from "../../lib/apiClient.js";
-import { formatMoney } from "../../lib/format.js";
+import { formatMoney, majorToMinorUnits } from "../../lib/format.js";
 import { useToast } from "../../components/ui/Toast.jsx";
 import {
   Dialog,
@@ -63,7 +62,7 @@ const PAYMENT_STATUSES = Object.keys(STATUS_VARIANTS);
 
 const INITIAL_FORM = {
   customerReference: "",
-  amountMinor: "",
+  amountMajor: "",
   currency: "USD",
   merchantReference: "",
   description: "",
@@ -84,9 +83,7 @@ function formatDate(value) {
 
   const date = new Date(value);
 
-  return Number.isNaN(date.getTime())
-    ? "—"
-    : date.toLocaleDateString();
+  return Number.isNaN(date.getTime()) ? "—" : date.toLocaleDateString();
 }
 
 function validatePayment(form) {
@@ -94,8 +91,8 @@ function validatePayment(form) {
     return "Customer reference is required.";
   }
 
-  if (!/^[1-9]\d*$/.test(form.amountMinor)) {
-    return "Enter a valid positive amount in minor units.";
+  if (!majorToMinorUnits(form.amountMajor)) {
+    return "Enter a valid positive amount with at most two decimal places.";
   }
 
   if (!["USD", "INR"].includes(form.currency)) {
@@ -124,8 +121,7 @@ function PaymentMetric({ title, value, description, icon: Icon, tone }) {
     red: "bg-red-50 text-red-600 dark:bg-red-950/40 dark:text-red-400",
     amber:
       "bg-amber-50 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400",
-    slate:
-      "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",
+    slate: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",
   };
 
   return (
@@ -202,7 +198,9 @@ export function PaymentDashboard() {
         payment.merchantReference,
         payment.id,
       ].some((value) =>
-        String(value ?? "").toLowerCase().includes(term),
+        String(value ?? "")
+          .toLowerCase()
+          .includes(term),
       );
 
     const matchesStatus =
@@ -277,7 +275,7 @@ export function PaymentDashboard() {
     addToast({
       title: failed ? "Refresh failed" : "Payments updated",
       description: failed
-        ? failed.error?.message ?? "Unable to refresh payment data."
+        ? (failed.error?.message ?? "Unable to refresh payment data.")
         : "Latest payment records loaded.",
       variant: failed ? "error" : "success",
       duration: 3000,
@@ -326,7 +324,7 @@ export function PaymentDashboard() {
       const response = await apiClient.payments.create(
         {
           customerReference: form.customerReference.trim(),
-          amountMinor: form.amountMinor,
+          amountMinor: majorToMinorUnits(form.amountMajor),
           currency: form.currency,
           merchantReference: form.merchantReference.trim() || undefined,
           description: form.description.trim() || undefined,
@@ -535,10 +533,7 @@ export function PaymentDashboard() {
                             {payment.customerReference ?? "—"}
                           </td>
                           <td className="whitespace-nowrap px-3 py-3 font-medium">
-                            {formatMoney(
-                              payment.amountMinor,
-                              payment.currency,
-                            )}
+                            {formatMoney(payment.amountMinor, payment.currency)}
                           </td>
                           <td className="px-3 py-3">
                             <Badge
@@ -546,7 +541,8 @@ export function PaymentDashboard() {
                                 STATUS_VARIANTS[payment.status] ?? "secondary"
                               }
                             >
-                              {payment.status?.replaceAll("_", " ") ?? "UNKNOWN"}
+                              {payment.status?.replaceAll("_", " ") ??
+                                "UNKNOWN"}
                             </Badge>
                           </td>
                           <td className="whitespace-nowrap px-3 py-3 text-xs text-slate-500">
@@ -589,7 +585,7 @@ export function PaymentDashboard() {
             </DialogDescription>
           </DialogHeader>
 
-          <form onSubmit={handleCreate} className="space-y-4">
+          <form onSubmit={handleCreate} className="space-y-4" noValidate>
             {createError && (
               <div
                 role="alert"
@@ -624,26 +620,24 @@ export function PaymentDashboard() {
                 <Input
                   id="payment-amount"
                   required
-                  inputMode="numeric"
+                  inputMode="decimal"
                   disabled={creating}
-                  value={form.amountMinor}
+                  value={form.amountMajor}
                   onChange={(event) =>
                     updateForm(
-                      "amountMinor",
-                      event.target.value.replace(/\D/g, ""),
+                      "amountMajor",
+                      event.target.value.replace(/[^\d.]/g, ""),
                     )
                   }
-                  placeholder="1000"
+                  placeholder="500.00"
                 />
                 <p className="text-xs text-slate-500">
-                  1000 = 10.00
+                  Enter major currency units, for example 500.00.
                 </p>
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="payment-currency">
-                  Currency
-                </Label>
+                <Label htmlFor="payment-currency">Currency</Label>
                 <Select
                   value={form.currency}
                   disabled={creating}
@@ -661,9 +655,7 @@ export function PaymentDashboard() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="merchant-reference">
-                Order Reference
-              </Label>
+              <Label htmlFor="merchant-reference">Order Reference</Label>
               <Input
                 id="merchant-reference"
                 disabled={creating}
@@ -676,9 +668,7 @@ export function PaymentDashboard() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="payment-description">
-                Description
-              </Label>
+              <Label htmlFor="payment-description">Description</Label>
               <Input
                 id="payment-description"
                 maxLength={500}
