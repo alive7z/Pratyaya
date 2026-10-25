@@ -13,7 +13,7 @@ Pratyaya is a synthetic payment reliability and agentic-authorization lab. It de
 [![Node.js](https://img.shields.io/badge/Node.js-24%2B-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev/)
 
-**[Browse the source](https://github.com/alive7z/Pratyaya)** · **[Open the API contract](docs/openapi.yaml)** · **[Read the architecture](docs/architecture.md)** · **[Review deployment notes](docs/deployment.md)**
+**[Open the live demo](https://pratyaya-sand.vercel.app)** · **[Browse the source](https://github.com/alive7z/Pratyaya)** · **[Open the API contract](docs/openapi.yaml)** · **[Read the architecture](docs/architecture.md)** · **[Review deployment notes](docs/deployment.md)**
 
 > **Simulation only:** use fictional merchants, users, invoices, tokens, and amounts. Pratyaya is not a gateway, bank, PCI-certified system, or production financial product.
 
