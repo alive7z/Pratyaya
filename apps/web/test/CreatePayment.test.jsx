@@ -67,7 +67,11 @@ function renderDashboard(authUser = merchantAuth) {
     if (String(url).endsWith("/payments")) {
       return jsonResponse({
         data: {
-          payment: { id: "pay_created_123", reference: "PAY-ABC", status: "CREATED" },
+          payment: {
+            id: "pay_created_123",
+            reference: "PAY-ABC",
+            status: "CREATED",
+          },
         },
       });
     }
@@ -125,26 +129,24 @@ describe("Create Payment", () => {
 
     const dialog = await openCreateDialog();
 
-    await userEvent.click(within(dialog).getByLabelText("Customer name / reference"));
+    await userEvent.click(within(dialog).getByLabelText(/Customer Reference/));
     await userEvent.type(
-      within(dialog).getByLabelText("Customer name / reference"),
+      within(dialog).getByLabelText(/Customer Reference/),
       "Acme Corp",
     );
 
-    await userEvent.click(within(dialog).getByLabelText("Amount"));
-    await userEvent.type(within(dialog).getByLabelText("Amount"), "1000");
+    await userEvent.click(within(dialog).getByLabelText(/Amount/));
+    await userEvent.type(within(dialog).getByLabelText(/Amount/), "500");
 
-    await userEvent.click(
-      within(dialog).getByLabelText("Order reference (optional)"),
-    );
+    await userEvent.click(within(dialog).getByLabelText("Order Reference"));
     await userEvent.type(
-      within(dialog).getByLabelText("Order reference (optional)"),
+      within(dialog).getByLabelText("Order Reference"),
       "ORDER-123",
     );
 
-    await userEvent.click(within(dialog).getByLabelText("Description (optional)"));
+    await userEvent.click(within(dialog).getByLabelText("Description"));
     await userEvent.type(
-      within(dialog).getByLabelText("Description (optional)"),
+      within(dialog).getByLabelText("Description"),
       "Test payment",
     );
 
@@ -163,7 +165,7 @@ describe("Create Payment", () => {
     expect(options.headers["Idempotency-Key"]).toBeTruthy();
     const body = JSON.parse(options.body);
     expect(body.customerReference).toBe("Acme Corp");
-    expect(body.amountMinor).toBe("1000");
+    expect(body.amountMinor).toBe("50000");
     expect(body.currency).toBe("USD");
     expect(body.merchantReference).toBe("ORDER-123");
     expect(body.description).toBe("Test payment");
@@ -183,7 +185,7 @@ describe("Create Payment", () => {
     );
 
     expect(
-      screen.getByText("Customer name or reference is required"),
+      screen.getByText("Customer reference is required."),
     ).toBeInTheDocument();
 
     const createCalls = fetchMock.mock.calls.filter(([u]) =>
