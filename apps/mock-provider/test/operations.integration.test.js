@@ -237,7 +237,49 @@ describe.skipIf(!enabled)("Mock provider operations", () => {
       .expect(200);
 
     expect(observed.body.data.operationId).toBe(body.clientOperationId);
-    expect(observed.body.data.status).toBe("UNKNOWN_TO_CLIENT");
+    expect(observed.body.data.status).toBe("SUCCEEDED");
+    expect(observed.body.data.faultInjected).toBe("timeout");
+  });
+
+  it("applies signed request-scoped decline, latency, and error faults", async () => {
+    const declinedBody = {
+      ...baseAuthRequest(),
+      simulationFault: { type: "decline", enabled: true },
+    };
+    const declined = await signedPost(
+      "/v1/authorizations",
+      declinedBody,
+    ).expect(201);
+    expect(declined.body.data.status).toBe("DECLINED");
+    expect(declined.body.data.faultInjected).toBe("decline");
+
+    const latencyBody = {
+      ...baseAuthRequest(),
+      simulationFault: { type: "latency", enabled: true, delayMs: 25 },
+    };
+    const startedAt = Date.now();
+    const delayed = await signedPost("/v1/authorizations", latencyBody).expect(
+      201,
+    );
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(20);
+    expect(delayed.body.data.status).toBe("SUCCEEDED");
+    expect(delayed.body.data.faultInjected).toBe("latency");
+
+    const errorBody = {
+      ...baseAuthRequest(),
+      simulationFault: {
+        type: "error",
+        enabled: true,
+        statusCode: 503,
+        code: "SYNTHETIC_PROVIDER_ERROR",
+      },
+    };
+    await signedPost("/v1/authorizations", errorBody).expect(503);
+    const errored = await signedGet(
+      `/v1/operations/${errorBody.clientOperationId}`,
+    ).expect(200);
+    expect(errored.body.data.status).toBe("UNKNOWN_TO_CLIENT");
+    expect(errored.body.data.faultInjected).toBe("error");
   });
 
   it("lists operations for a merchant", async () => {
