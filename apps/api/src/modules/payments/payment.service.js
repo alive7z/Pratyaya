@@ -1,4 +1,3 @@
-
 import mongoose from "mongoose";
 import {
   IDEMPOTENCY_OPERATIONS,
@@ -28,6 +27,7 @@ import {
 } from "../../lib/idempotency.js";
 import { createPaymentOrchestratorService } from "./operations/payment-orchestrator.service.js";
 import { riskDecisionService } from "../risk/risk-decision.service.js";
+import { getActiveProviderFault } from "../sandbox/sandbox.service.js";
 
 function generateReference() {
   const suffix = new mongoose.Types.ObjectId()
@@ -64,6 +64,7 @@ export async function createPayment({
   const reference = body.merchantReference ?? generateReference();
   const customerReference = body.customerReference ?? null;
   const customerLabel = customerReference ?? body.description ?? reference;
+  const simulationFault = getActiveProviderFault(auth);
 
   try {
     return await runInTransaction(async (session) => {
@@ -102,15 +103,8 @@ export async function createPayment({
             .session(session)
             .lean();
 
-          if (
-            !payment ||
-            String(payment.merchantId) !== String(merchantId)
-          ) {
-            throw new AppError(
-              404,
-              "PAYMENT_NOT_FOUND",
-              "Payment not found",
-            );
+          if (!payment || String(payment.merchantId) !== String(merchantId)) {
+            throw new AppError(404, "PAYMENT_NOT_FOUND", "Payment not found");
           }
 
           return {
@@ -167,6 +161,7 @@ export async function createPayment({
               riskScore: 0,
               description: body.description,
               metadata: body.metadata,
+              simulationFault,
               createdByUserId: auth.user?._id ?? auth.userId,
               isDemo: Boolean(auth.isDemo),
             },
@@ -353,11 +348,7 @@ export async function getPayment({ auth, paymentId }) {
   }).lean();
 
   if (!payment) {
-    throw new AppError(
-      404,
-      "PAYMENT_NOT_FOUND",
-      "Payment not found",
-    );
+    throw new AppError(404, "PAYMENT_NOT_FOUND", "Payment not found");
   }
 
   return toPaymentDto(payment);
@@ -372,11 +363,7 @@ export async function getPaymentTimeline({ auth, paymentId }) {
   }).lean();
 
   if (!payment) {
-    throw new AppError(
-      404,
-      "PAYMENT_NOT_FOUND",
-      "Payment not found",
-    );
+    throw new AppError(404, "PAYMENT_NOT_FOUND", "Payment not found");
   }
 
   const events = await PaymentEvent.find({
@@ -410,11 +397,7 @@ export async function getPaymentAttempts({ auth, paymentId }) {
   }).lean();
 
   if (!payment) {
-    throw new AppError(
-      404,
-      "PAYMENT_NOT_FOUND",
-      "Payment not found",
-    );
+    throw new AppError(404, "PAYMENT_NOT_FOUND", "Payment not found");
   }
 
   const operations = await ProviderOperation.find({
@@ -490,11 +473,7 @@ export async function capturePayment({
   }).lean();
 
   if (!payment) {
-    throw new AppError(
-      404,
-      "PAYMENT_NOT_FOUND",
-      "Payment not found",
-    );
+    throw new AppError(404, "PAYMENT_NOT_FOUND", "Payment not found");
   }
 
   if (payment.status !== PAYMENT_STATUS.AUTHORIZED) {
@@ -511,10 +490,7 @@ export async function capturePayment({
       ? BigInt(payment.amountMinor)
       : BigInt(body.amountMinor);
 
-  if (
-    captureAmount <= 0n ||
-    captureAmount > BigInt(payment.amountMinor)
-  ) {
+  if (captureAmount <= 0n || captureAmount > BigInt(payment.amountMinor)) {
     throw new AppError(
       422,
       "INVALID_CAPTURE_AMOUNT",
@@ -522,10 +498,7 @@ export async function capturePayment({
     );
   }
 
-  const orchestratorService = await getOrchestrator(
-    auth.config,
-    auth.logger,
-  );
+  const orchestratorService = await getOrchestrator(auth.config, auth.logger);
 
   const result = await orchestratorService.initiateCapture({
     auth,
@@ -545,9 +518,7 @@ export async function cancelPayment({ auth, paymentId, req }) {
   const merchantId = auth.merchantId;
   const key = getIdempotencyKey(req);
   const keyHash = hashIdempotencyKey(key);
-  const requestFingerprint = hashPayload(
-    fingerprintObject({ paymentId }),
-  );
+  const requestFingerprint = hashPayload(fingerprintObject({ paymentId }));
 
   return runInTransaction(async (session) => {
     const existingIdem = await IdempotencyRecord.findOne(
@@ -581,16 +552,11 @@ export async function cancelPayment({ auth, paymentId, req }) {
         existingIdem.status === IDEMPOTENCY_STATE.COMPLETED &&
         existingIdem.paymentId
       ) {
-        const payment = await Payment.findById(
-          existingIdem.paymentId,
-        )
+        const payment = await Payment.findById(existingIdem.paymentId)
           .session(session)
           .lean();
 
-        if (
-          payment &&
-          String(payment.merchantId) === String(merchantId)
-        ) {
+        if (payment && String(payment.merchantId) === String(merchantId)) {
           return {
             payment: toPaymentDto(payment),
             idempotent: true,
@@ -625,11 +591,7 @@ export async function cancelPayment({ auth, paymentId, req }) {
     }).session(session);
 
     if (!payment) {
-      throw new AppError(
-        404,
-        "PAYMENT_NOT_FOUND",
-        "Payment not found",
-      );
+      throw new AppError(404, "PAYMENT_NOT_FOUND", "Payment not found");
     }
 
     if (!CANCELLABLE_STATUSES.includes(payment.status)) {
@@ -643,10 +605,7 @@ export async function cancelPayment({ auth, paymentId, req }) {
 
     const fromStatus = payment.status;
 
-    assertTransition(
-      fromStatus,
-      PAYMENT_STATUS.CANCELLED,
-    );
+    assertTransition(fromStatus, PAYMENT_STATUS.CANCELLED);
 
     const cancelled = await Payment.findOneAndUpdate(
       {
