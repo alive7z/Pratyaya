@@ -100,7 +100,9 @@ describe("Pratyaya web foundation", () => {
     ).toBeInTheDocument();
     expect(await screen.findByText("Ready")).toBeInTheDocument();
     expect(
-      await screen.findByText("Payment reliability, engineered from the ledger up."),
+      await screen.findByText(
+        "Payment reliability, engineered from the ledger up.",
+      ),
     ).toBeInTheDocument();
   });
 
