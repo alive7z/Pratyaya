@@ -1,4 +1,3 @@
-
 import mongoose from "mongoose";
 import {
   OPERATION_TYPES,
@@ -15,13 +14,7 @@ import { OutboxEvent } from "../outbox-event.model.js";
 import { recordPaymentEvent, toPaymentDto } from "../payment.repository.js";
 import { createProviderClientService } from "./provider-client.service.js";
 
-const {
-  PENDING,
-  IN_FLIGHT,
-  SUCCEEDED,
-  FAILED,
-  UNKNOWN,
-} = OPERATION_STATES;
+const { PENDING, IN_FLIGHT, SUCCEEDED, FAILED, UNKNOWN } = OPERATION_STATES;
 
 const { AUTHORIZE, CAPTURE, REFUND } = OPERATION_TYPES;
 
@@ -85,13 +78,7 @@ async function addEvent(session, auth, payment, options) {
   );
 }
 
-async function enqueueEvent(
-  session,
-  auth,
-  payment,
-  eventType,
-  payload,
-) {
+async function enqueueEvent(session, auth, payment, eventType, payload) {
   await OutboxEvent.create(
     [
       {
@@ -154,14 +141,12 @@ async function updatePaymentStatus(
 async function loadPayment(session, auth, paymentId) {
   const payment = await Payment.findOne(
     paymentFilter(paymentId, auth.merchantId),
-  ).session(session);
+  )
+    .select("+simulationFault")
+    .session(session);
 
   if (!payment) {
-    throw new AppError(
-      404,
-      "PAYMENT_NOT_FOUND",
-      "Payment not found",
-    );
+    throw new AppError(404, "PAYMENT_NOT_FOUND", "Payment not found");
   }
 
   return payment;
@@ -277,6 +262,7 @@ async function markUnknown(operation, auth, reason) {
         $set: {
           state: UNKNOWN,
           stateReason: reason,
+          faultInjected: current.requestPayload?.simulationFault?.type ?? null,
           processingCompletedAt: now(),
         },
       },
@@ -291,11 +277,7 @@ async function markUnknown(operation, auth, reason) {
       );
     }
 
-    const payment = await loadPayment(
-      session,
-      auth,
-      current.paymentId,
-    );
+    const payment = await loadPayment(session, auth, current.paymentId);
 
     if ([AUTHORIZE, CAPTURE].includes(current.type)) {
       const expectedStatus =
@@ -377,14 +359,9 @@ export async function createPaymentOrchestratorService(
   dependencies = {},
 ) {
   const providerClient =
-    dependencies.providerClient ??
-    createProviderClientService(config, logger);
+    dependencies.providerClient ?? createProviderClientService(config, logger);
 
-  async function initiateAuthorization({
-    auth,
-    paymentId,
-    idempotencyKey,
-  }) {
+  async function initiateAuthorization({ auth, paymentId, idempotencyKey }) {
     return runFinancialTransaction(async (session) => {
       const payment = await loadPayment(session, auth, paymentId);
 
@@ -434,6 +411,7 @@ export async function createPaymentOrchestratorService(
             },
             description: payment.description,
             metadata: payment.metadata,
+            simulationFault: payment.simulationFault ?? undefined,
           },
         },
       );
@@ -544,8 +522,7 @@ export async function createPaymentOrchestratorService(
           idempotencyKey: `${idempotencyKey}-capture`,
           requestPayload: {
             clientOperationId,
-            authorizationOperationId:
-              authorization.providerOperationId,
+            authorizationOperationId: authorization.providerOperationId,
             amountMinor: captureAmount.toString(),
             currency: payment.currency,
             metadata: payment.metadata,
@@ -673,10 +650,7 @@ export async function createPaymentOrchestratorService(
         );
       }
 
-      const refundAmount = ensurePositiveAmount(
-        amountMinor,
-        refundable,
-      );
+      const refundAmount = ensurePositiveAmount(amountMinor, refundable);
 
       const captureOperation = await ProviderOperation.findOne({
         paymentId,
@@ -708,8 +682,7 @@ export async function createPaymentOrchestratorService(
           idempotencyKey: `${idempotencyKey}-refund`,
           requestPayload: {
             clientOperationId,
-            captureOperationId:
-              captureOperation.providerOperationId,
+            captureOperationId: captureOperation.providerOperationId,
             amountMinor: refundAmount.toString(),
             currency: payment.currency,
             reason,
@@ -784,11 +757,7 @@ export async function createPaymentOrchestratorService(
         };
       }
 
-      const payment = await loadPayment(
-        session,
-        auth,
-        operation.paymentId,
-      );
+      const payment = await loadPayment(session, auth, operation.paymentId);
 
       const succeeded = providerResponse.status === "SUCCEEDED";
       const declined = providerResponse.status === "DECLINED";
@@ -806,10 +775,9 @@ export async function createPaymentOrchestratorService(
         : PAYMENT_STATUS.FAILED;
 
       if (
-        ![
-          PAYMENT_STATUS.AUTHORIZING,
-          PAYMENT_STATUS.UNKNOWN,
-        ].includes(payment.status)
+        ![PAYMENT_STATUS.AUTHORIZING, PAYMENT_STATUS.UNKNOWN].includes(
+          payment.status,
+        )
       ) {
         throw new AppError(
           409,
@@ -825,8 +793,7 @@ export async function createPaymentOrchestratorService(
         nextStatus,
         {
           statusReason: declined
-            ? providerResponse.statusReason ??
-              "Authorization declined"
+            ? (providerResponse.statusReason ?? "Authorization declined")
             : null,
         },
       );
@@ -842,10 +809,12 @@ export async function createPaymentOrchestratorService(
             state: succeeded ? SUCCEEDED : FAILED,
             stateReason: providerResponse.statusReason ?? null,
             providerOperationId:
-              providerResponse.operationId ??
-              operation.providerOperationId,
-            providerReference:
-              providerResponse.providerReference ?? null,
+              providerResponse.operationId ?? operation.providerOperationId,
+            providerReference: providerResponse.providerReference ?? null,
+            faultInjected:
+              providerResponse.faultInjected ??
+              operation.requestPayload?.simulationFault?.type ??
+              null,
             responsePayload: providerResponse,
             processingCompletedAt: now(),
           },
@@ -862,9 +831,7 @@ export async function createPaymentOrchestratorService(
       }
 
       await addEvent(session, auth, payment, {
-        eventType: succeeded
-          ? "payment.authorized"
-          : "payment.failed",
+        eventType: succeeded ? "payment.authorized" : "payment.failed",
         fromStatus: payment.status,
         toStatus: nextStatus,
         actorRole: "provider",
@@ -902,10 +869,7 @@ export async function createPaymentOrchestratorService(
     auth,
     providerResponse,
   }) {
-    const operation = await getOperation(
-      providerOperationId,
-      auth.merchantId,
-    );
+    const operation = await getOperation(providerOperationId, auth.merchantId);
 
     if (operation.state === SUCCEEDED) {
       return {
@@ -915,16 +879,14 @@ export async function createPaymentOrchestratorService(
     }
 
     if (providerResponse.status === "SUCCEEDED") {
-      const { confirmTrustedCapture } = await import(
-        "../../ledger/payment-ledger.service.js"
-      );
+      const { confirmTrustedCapture } =
+        await import("../../ledger/payment-ledger.service.js");
 
       const result = await confirmTrustedCapture({
         merchantId: auth.merchantId,
         paymentId: operation.paymentId,
         providerEventId:
-          providerResponse.operationId ??
-          operation.providerOperationId,
+          providerResponse.operationId ?? operation.providerOperationId,
         amountMinor: operation.amountMinor.toString(),
         actor: "provider",
         requestId: operation.idempotencyKey,
@@ -941,10 +903,8 @@ export async function createPaymentOrchestratorService(
           $set: {
             state: SUCCEEDED,
             providerOperationId:
-              providerResponse.operationId ??
-              operation.providerOperationId,
-            providerReference:
-              providerResponse.providerReference ?? null,
+              providerResponse.operationId ?? operation.providerOperationId,
+            providerReference: providerResponse.providerReference ?? null,
             responsePayload: providerResponse,
             processingCompletedAt: now(),
           },
@@ -979,11 +939,7 @@ export async function createPaymentOrchestratorService(
         };
       }
 
-      const payment = await loadPayment(
-        session,
-        auth,
-        current.paymentId,
-      );
+      const payment = await loadPayment(session, auth, current.paymentId);
 
       const updated = await updatePaymentStatus(
         session,
@@ -991,8 +947,7 @@ export async function createPaymentOrchestratorService(
         auth.merchantId,
         PAYMENT_STATUS.FAILED,
         {
-          statusReason:
-            providerResponse.statusReason ?? "Capture declined",
+          statusReason: providerResponse.statusReason ?? "Capture declined",
         },
       );
 
@@ -1022,10 +977,7 @@ export async function createPaymentOrchestratorService(
     auth,
     providerResponse,
   }) {
-    const operation = await getOperation(
-      providerOperationId,
-      auth.merchantId,
-    );
+    const operation = await getOperation(providerOperationId, auth.merchantId);
 
     if (operation.state === SUCCEEDED) {
       return {
@@ -1035,16 +987,14 @@ export async function createPaymentOrchestratorService(
     }
 
     if (providerResponse.status === "SUCCEEDED") {
-      const { confirmTrustedRefund } = await import(
-        "../../ledger/payment-ledger.service.js"
-      );
+      const { confirmTrustedRefund } =
+        await import("../../ledger/payment-ledger.service.js");
 
       const result = await confirmTrustedRefund({
         merchantId: auth.merchantId,
         paymentId: operation.paymentId,
         providerEventId:
-          providerResponse.operationId ??
-          operation.providerOperationId,
+          providerResponse.operationId ?? operation.providerOperationId,
         amountMinor: operation.amountMinor.toString(),
         refundId: operation.refundId,
         actor: "provider",
@@ -1062,10 +1012,8 @@ export async function createPaymentOrchestratorService(
           $set: {
             state: SUCCEEDED,
             providerOperationId:
-              providerResponse.operationId ??
-              operation.providerOperationId,
-            providerReference:
-              providerResponse.providerReference ?? null,
+              providerResponse.operationId ?? operation.providerOperationId,
+            providerReference: providerResponse.providerReference ?? null,
             responsePayload: providerResponse,
             processingCompletedAt: now(),
           },
@@ -1100,11 +1048,7 @@ export async function createPaymentOrchestratorService(
         };
       }
 
-      const payment = await loadPayment(
-        session,
-        auth,
-        current.paymentId,
-      );
+      const payment = await loadPayment(session, auth, current.paymentId);
 
       current.state = FAILED;
       current.stateReason = providerResponse.statusReason;
@@ -1173,11 +1117,7 @@ export async function createPaymentOrchestratorService(
     });
   }
 
-  async function dispatch({
-    providerOperationId,
-    auth,
-    type,
-  }) {
+  async function dispatch({ providerOperationId, auth, type }) {
     const operation = await claimOperation(
       providerOperationId,
       auth.merchantId,
@@ -1243,10 +1183,7 @@ export async function createPaymentOrchestratorService(
       );
     }
 
-    if (
-      providerResponse.status === "UNKNOWN_TO_CLIENT" ||
-      response?.timeout
-    ) {
+    if (providerResponse.status === "UNKNOWN_TO_CLIENT" || response?.timeout) {
       return markUnknown(
         operation,
         auth,
@@ -1301,15 +1238,8 @@ export async function createPaymentOrchestratorService(
     });
   }
 
-  async function reconcileOperation({
-    providerOperationId,
-    auth,
-    type,
-  }) {
-    const operation = await getOperation(
-      providerOperationId,
-      auth.merchantId,
-    );
+  async function reconcileOperation({ providerOperationId, auth, type }) {
+    const operation = await getOperation(providerOperationId, auth.merchantId);
 
     if (operation.type !== type) {
       throw new AppError(
@@ -1327,19 +1257,16 @@ export async function createPaymentOrchestratorService(
     }
 
     const response = await providerClient.getOperation({
-      operationId:
-        operation.providerOperationId ?? operation.clientOperationId,
+      operationId: operation.providerOperationId ?? operation.clientOperationId,
       idempotencyKey: `reconcile-${operation._id}`,
     });
 
     const providerResponse = response?.data ?? response;
 
     if (
-      [
-        "RECEIVED",
-        "PROCESSING",
-        "UNKNOWN_TO_CLIENT",
-      ].includes(providerResponse?.status)
+      ["RECEIVED", "PROCESSING", "UNKNOWN_TO_CLIENT"].includes(
+        providerResponse?.status,
+      )
     ) {
       return {
         providerOperation: operation,
@@ -1348,9 +1275,7 @@ export async function createPaymentOrchestratorService(
       };
     }
 
-    if (
-      !["SUCCEEDED", "DECLINED"].includes(providerResponse?.status)
-    ) {
+    if (!["SUCCEEDED", "DECLINED"].includes(providerResponse?.status)) {
       throw new AppError(
         502,
         "PROVIDER_UNEXPECTED_STATUS",
