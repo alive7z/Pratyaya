@@ -1,8 +1,35 @@
 # Pratyaya
 
+<p align="center">
+  <a href="https://github.com/alive7z/Pratyaya" aria-label="Pratyaya source repository">
+    <img src="apps/web/public/pratyaya.svg" width="128" height="128" alt="Pratyaya logo" />
+  </a>
+</p>
+
 Pratyaya is a synthetic payment reliability and agentic-authorization lab. It demonstrates idempotent payment APIs, merchant isolation, durable background work, provider uncertainty, reconciliation, and double-entry accounting without accepting real payment credentials or moving money.
 
+[![CI](https://github.com/alive7z/Pratyaya/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/alive7z/Pratyaya/actions/workflows/ci.yml)
+[![OpenAPI](https://img.shields.io/badge/API-OpenAPI%203.1-6BA539?logo=openapiinitiative&logoColor=white)](docs/openapi.yaml)
+[![Node.js](https://img.shields.io/badge/Node.js-24%2B-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
+[![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev/)
+
+**[Browse the source](https://github.com/alive7z/Pratyaya)** · **[Open the API contract](docs/openapi.yaml)** · **[Read the architecture](docs/architecture.md)** · **[Review deployment notes](docs/deployment.md)**
+
 > **Simulation only:** use fictional merchants, users, invoices, tokens, and amounts. Pratyaya is not a gateway, bank, PCI-certified system, or production financial product.
+
+## Contents
+
+- [What the project demonstrates](#what-is-implemented)
+- [Architecture](#architecture)
+- [Payment safety model](#payment-safety-model)
+- [Repository map](#repository)
+- [Run locally](#run-locally)
+- [Verification](#verification)
+- [Recruiter demo walkthrough](#recruiter-demo-walkthrough)
+- [Deployment topology](#deployment)
+- [Security boundaries](#security-boundaries)
+- [Limitations](#current-limitations)
+- [Project documentation](#documentation)
 
 ## What is implemented
 
@@ -32,9 +59,13 @@ flowchart LR
     Provider --> ProviderDb[("MongoDB Atlas — provider")]
     Worker --> Reconcile["Reconciliation"]
     Reconcile --> Mongo
+    click Browser "https://github.com/alive7z/Pratyaya/tree/main/apps/web" "Browse the React application"
+    click API "https://github.com/alive7z/Pratyaya/tree/main/apps/api" "Browse the Express API"
+    click Worker "https://github.com/alive7z/Pratyaya/tree/main/apps/worker" "Browse the durable worker"
+    click Provider "https://github.com/alive7z/Pratyaya/tree/main/apps/mock-provider" "Browse the mock provider"
 ```
 
-The API is a modular monolith. The worker and mock provider are separate processes because they have different availability and security boundaries, not because every domain needs a service. MongoDB is authoritative; Redis/BullMQ is intentionally absent until measured demand and an ADR justify it.
+The API is a modular monolith. The worker and mock provider are separate processes because they have different availability and security boundaries, not because every domain needs a service. MongoDB is authoritative. Durable work currently uses MongoDB outbox records, conditional leases, and retries; Redis and BullMQ are not part of the active implementation.
 
 ### Payment safety model
 
@@ -132,9 +163,11 @@ npm run test:integration
 npm run deploy:check
 ```
 
-Unit tests do not require Atlas. Database and integration commands do and must target synthetic test databases. See [testing](docs/testing.md) and [verified evidence](RESUME_EVIDENCE.md); neither this README nor CI treats skipped Atlas jobs as a passing integration run.
+Unit tests do not require Atlas. Database and integration commands do and must target synthetic test databases. See the [testing guide](docs/testing.md) and [financial invariants](docs/financial-invariants.md); neither this README nor CI treats skipped Atlas jobs as a passing integration run.
 
 ## Recruiter demo walkthrough
+
+Use the live application when a deployment URL is published, or follow these steps locally at [`http://localhost:5173/login`](http://localhost:5173/login). Each **Explore as** role changes the authenticated session and server-enforced permissions.
 
 1. Open `/login` and choose **Explore as Merchant**. Create a fictional payment and inspect its state and timeline.
 2. Retry the same logical request with the same idempotency key; show that it maps to one payment. Change the payload with that key; show the conflict.
@@ -151,6 +184,17 @@ PRATYAYA_API_URL=https://your-render-api.example \
 PRATYAYA_PROVIDER_URL=https://your-render-provider.example \
 npm run smoke:deployment
 ```
+
+<details>
+<summary>What to point out during the demo</summary>
+
+- The API commits a payment, its idempotency record, and the outbox event together.
+- The worker reuses stable operation identifiers when retrying provider requests.
+- Unknown provider outcomes are reconciled before the system records a final result.
+- Ledger entries are immutable and balanced by currency; the UI reads actual API state.
+- AgentPay proposals require a separate human approval before execution.
+
+</details>
 
 ## Deployment
 
@@ -186,11 +230,17 @@ See [the threat model](docs/threat-model.md) and [financial invariants](docs/fin
 
 ## Documentation
 
-- [Architecture](PAYCORE_ARCHITECTURE.md)
-- [Deployment and costs](docs/deployment.md)
-- [OpenAPI](docs/openapi.yaml)
-- [Testing](docs/testing.md)
-- [Progress](docs/PROGRESS.md)
-- [Verified resume evidence](RESUME_EVIDENCE.md)
+- [Architecture and system boundaries](docs/architecture.md)
+- [Domain model](docs/domain-model.md)
+- [Payment state machine](docs/payment-state-machine.md)
+- [Financial invariants and ledger rules](docs/financial-invariants.md)
+- [API conventions](docs/api-conventions.md)
+- [MongoDB indexes](docs/mongodb-indexes.md)
+- [Security threat model](docs/threat-model.md)
+- [Testing guide](docs/testing.md)
+- [Deployment topology and costs](docs/deployment.md)
+- [Roadmap](docs/roadmap.md)
+- [OpenAPI 3.1 specification](docs/openapi.yaml)
+- [Continuous integration workflow](.github/workflows/ci.yml)
 
 License and support terms have not been defined. Review the code and limitations before reuse.
