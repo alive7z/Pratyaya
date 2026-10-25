@@ -1,6 +1,8 @@
 # Testing and verification
 
-Run from the repository root with Node.js 24/npm 11:
+Run commands from the repository root. The project targets Node.js 24+ and npm 11+.
+
+## Local checks
 
 ```bash
 npm run format:check
@@ -10,9 +12,11 @@ npm run build
 npm run deploy:check
 ```
 
-`npm test` runs API, mock-provider, React/jsdom, and shared-package suites. Integration files are deliberately skipped unless `RUN_INTEGRATION_TESTS=1` is set.
+`npm test` runs the API, mock-provider, React/jsdom, worker, and shared-package suites. Database-backed integration cases are skipped unless explicitly enabled; skipped cases are not passing integration evidence.
 
-The following require untracked Atlas credentials and synthetic test databases that support transactions:
+## Atlas-backed checks
+
+These commands require separately configured, synthetic MongoDB databases on a replica set that supports transactions. Use credentials from an ignored local `.env` or CI secrets; never put a URI in a committed file or terminal transcript.
 
 ```bash
 npm run db:check
@@ -20,9 +24,9 @@ npm run db:migrate:provider
 npm run test:integration
 ```
 
-The provider migration removes only the known obsolete `providerOperationId_1` index after verifying its exact key, then creates current schema indexes. Do not point tests or migrations at customer/real-money data.
+The provider migration checks the exact obsolete index definition before removing it and then provisions the current provider indexes. Do not point test or migration commands at customer or real-money data.
 
-After deployment:
+## Hosted smoke test
 
 ```bash
 PRATYAYA_WEB_URL=https://... \
@@ -31,6 +35,8 @@ PRATYAYA_PROVIDER_URL=https://... \
 npm run smoke:deployment
 ```
 
-The hosted smoke verifies frontend delivery, API liveness/readiness, available roles, four role sessions, identity, role dashboards, CSRF logout, and optional provider/worker readiness. A passing local run is not evidence of a successful hosted deployment.
+The smoke script checks reachable frontend/API/provider endpoints and exercises the configured role-session flow. A local deployment configuration check does not prove that hosted services are deployed or reachable. Record URLs and results only after running this command against the actual deployment.
 
-Verified counts and dates belong in `RESUME_EVIDENCE.md` and `docs/PROGRESS.md`; performance claims require a separate reproducible benchmark.
+## Evidence policy
+
+See [progress and verification status](PROGRESS.md) for the dated verification record. Test counts must be copied from actual command output; skipped tests must remain reported as skipped. Performance claims require a reproducible benchmark with environment, workload, and measurement method.

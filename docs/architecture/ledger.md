@@ -1,48 +1,30 @@
-# Ledger architecture
+# Ledger and financial integrity
 
-Pratyaya's ledger records confirmed synthetic money movement. It is not a bank ledger and does not process real funds. MongoDB Atlas is authoritative; React totals are display-only projections from posted journals.
+Pratyaya records confirmed **synthetic** payment movement in MongoDB. It is a portfolio simulation, not a bank ledger or real-money processor. Posted journals are the accounting source of truth; UI totals are projections.
 
-## Chart of accounts
+## Accounts and postings
 
-The current capture/refund workflow creates only the accounts it needs, once per merchant and currency:
+The current capture/refund workflow provisions two merchant- and currency-scoped accounts:
 
-| Code                | Type      | Normal balance | Current use                            |
-| ------------------- | --------- | -------------- | -------------------------------------- |
-| `PROVIDER_CLEARING` | Asset     | Debit          | Receivable from the simulated provider |
-| `MERCHANT_PAYABLE`  | Liability | Credit         | Amount owed to the simulated merchant  |
+| Account             | Type      | Normal balance | Use                                   |
+| ------------------- | --------- | -------------- | ------------------------------------- |
+| `PROVIDER_CLEARING` | Asset     | Debit          | Simulated provider receivable         |
+| `MERCHANT_PAYABLE`  | Liability | Credit         | Amount owed to the simulated merchant |
 
-`CASH_SETTLEMENT`, `PROCESSING_FEE_REVENUE`, and `REFUND_EXPENSE` are reserved concepts. They are not created or posted until settlement, fee, and expense workflows have defined evidence and state machines.
+A confirmed capture debits Provider Clearing and credits Merchant Payable. A confirmed refund creates a new journal that debits Merchant Payable and credits Provider Clearing, linked to the capture journal. Authorization, payment creation, and pending refund reservation do not post accounting entries. Settlement, fees, FX, and cash payouts are not implemented accounting flows.
 
-An INR 1,000 confirmed capture posts:
+## Atomic posting
 
-| Account           |     Debit |    Credit |
-| ----------------- | --------: | --------: |
-| Provider Clearing | ₹1,000.00 |         — |
-| Merchant Payable  |         — | ₹1,000.00 |
+Capture and trusted refund confirmation run their payment update, journal post, ledger event, and outbox write under a MongoDB transaction/session. Refund record confirmation participates in the same transaction. External provider HTTP calls are outside the posting service; provider orchestration must apply the returned outcome through the trusted domain workflow.
 
-A confirmed full refund posts a new journal linked to the capture:
+`postJournal()` requires the caller's active session. It validates integer minor units, balanced entries, account ownership/status/currency, source identity, and reversal linkage. The unique source tuple and deterministic reference make replays safe: identical committed sources resolve to the existing effect; conflicting payloads fail. Transaction retry/unknown-commit handling reconciles by the stable source instead of blindly posting again.
 
-| Account           |     Debit |    Credit |
-| ----------------- | --------: | --------: |
-| Merchant Payable  | ₹1,000.00 |         — |
-| Provider Clearing |         — | ₹1,000.00 |
+## Immutability and integrity checks
 
-Authorization and payment creation post nothing. Fees, payouts, settlement, FX, and actual cash movement are outside M04.
+Journals embed entries and are append-only through supported model operations. Corrections require a compensating journal; posted entries are not edited in place. Application safeguards do not constrain a database administrator with direct write access. The Integrity Guardian checks stored accounting invariants and reports findings; it is diagnostic and does not repair or rewrite journals.
 
-## Posting workflow
+Balances are aggregated from posted journal entries and returned as decimal strings. There is no mutable balance counter that can authorize a refund. Refund capacity is checked against captured amount, confirmed refunds, and pending reservations inside the transaction.
 
-`postJournal()` requires an active MongoDB session and transaction. It validates integer minor units, balance, active account references, merchant ownership, currency, reversal linkage, and source identity. The caller atomically writes the payment transition, embedded immutable journal entries, `LedgerEvent`, and transactional outbox record.
+## Public API boundary
 
-The service deliberately does not open or commit its own transaction. This allows capture/refund services to make the business transition and accounting effect one unit. External HTTP calls never run inside the transaction.
-
-The unique `(merchantId, sourceType, sourceId, eventType)` index and deterministic journal reference make replay safe. An identical replay returns the committed journal; a changed payload for the same source is rejected. MongoDB retries transient transaction errors. If commit returns `UnknownTransactionCommitResult`, the financial wrapper reconciles by the stable source before returning; it does not blindly repost.
-
-## Immutability and balances
-
-Journals embed all entries and are append-only through supported application operations. Update, replacement, and delete model operations reject posted journals. Corrections require a new linked reversal or compensating journal. Direct database-administrator writes are outside application guarantees and are detected by the Integrity Guardian.
-
-Balances are aggregated from `POSTED` journal entries and returned as decimal strings. No mutable balance counter or snapshot authorizes refunds. A liability account's displayed net is credits minus debits; an asset account's net is debits minus credits.
-
-## Capture and refund boundary
-
-`confirmTrustedCapture()` and `confirmTrustedRefund()` are internal domain services exercised with trusted synthetic events. They use optimistic payment versions and conditional updates inside Atlas transactions. Refunds compare the requested amount with the captured amount and already confirmed refunds in the same transaction. Production-facing capture/refund endpoints remain absent until the mock-provider authenticity and operation workflows are complete.
+Authenticated merchant payment APIs expose capture and refund operations, but ledger posting remains an internal domain operation triggered by trusted simulated provider outcomes. All endpoints are sandbox/demo-only and require the existing authorization, merchant scope, and idempotency controls. See [API conventions](../api-conventions.md), [financial invariants](financial-invariants.md), and [MongoDB indexes](../mongodb-indexes.md).

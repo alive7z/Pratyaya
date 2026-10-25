@@ -1,25 +1,23 @@
-# Milestone roadmap
+# Roadmap and milestone status
 
-M01–M11 produced the current foundation, identity/RBAC, payments, ledger, provider simulation, durable work, reconciliation, routing/risk, AgentPay, and React operations interface. Historical implementation notes remain in Git history; current truth is the source, tests, and `docs/PROGRESS.md`.
+The repository currently includes the M01–M11 product foundation: workspace/process setup, MongoDB persistence, demo identity and RBAC, payments, ledger and integrity, mock-provider operations, durable background work, reconciliation, risk/routing, AgentPay simulation, and React operations views. See [implementation progress](PROGRESS.md) for what was actually verified.
 
 ## M12 — deployment and portfolio readiness
 
-Implemented in the repository:
+### Present in the repository
 
-- Vercel SPA/proxy configuration
-- Render API, provider, and persistent-worker Blueprint
-- production environment validation and secret-only configuration points
-- provider index migration
-- deployment config checks and four-role hosted smoke script
-- deployment/cost/limitation documentation
-- recruiter README and evidence-only resume document
+- Vercel SPA and same-origin API proxy configuration.
+- Render service definitions for API, mock provider, and persistent worker.
+- Environment validation, production cookie/proxy settings, CORS, and secret configuration points.
+- Provider index migration, deployment configuration check, and hosted smoke script.
+- Deployment guidance, architecture diagrams, and recruiter-facing README.
 
-External completion gates:
+### External gates still open
 
-- provision distinct least-privilege Atlas databases/users
-- link Vercel and Render accounts and configure secrets
-- deploy all services, record immutable working HTTPS URLs, and run hosted smoke tests
-- perform a human browser/accessibility review and capture truthful screenshots
-- split provider network waits from MongoDB transaction callbacks before describing the system as production-hardened
+- Provision isolated, least-privilege Atlas databases/users and network access.
+- Configure deployment secrets in Vercel and Render without committing them.
+- Deploy services, record their actual HTTPS URLs, and run the hosted smoke test.
+- Review the live UI for accessibility and capture screenshots from the running app.
+- Move provider network waits out of transaction callbacks before claiming production hardening.
 
-No later milestone is authorized by this document.
+A deployment config file is not evidence of a deployed service. No hosted completion is claimed until each external gate is verified. Further feature work should wait for the user's next milestone request.
