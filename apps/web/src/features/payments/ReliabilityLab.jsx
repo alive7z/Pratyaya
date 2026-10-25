@@ -1,4 +1,3 @@
-
 import { useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -13,7 +12,12 @@ import {
 } from "lucide-react";
 import { useAuth } from "../../app/AuthContext.jsx";
 import { apiClient } from "../../lib/apiClient.js";
-import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/Card.jsx";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "../../components/ui/Card.jsx";
 import { Button } from "../../components/ui/Button.jsx";
 import { Input } from "../../components/ui/Input.jsx";
 import {
@@ -30,49 +34,45 @@ const SCENARIOS = [
     name: "Provider Timeout",
     description: "Simulate an uncertain provider response.",
     icon: Clock3,
-    rules: [{ type: "timeout", enabled: true, delayMs: 30000 }],
+    rules: [{ type: "timeout", enabled: true, delayMs: 250 }],
   },
   {
     id: "decline",
     name: "Provider Decline",
     description: "Simulate a rejected payment authorization.",
     icon: XCircle,
-    rules: [{
-      type: "decline",
-      enabled: true,
-      code: "PROVIDER_DECLINED",
-      message: "Simulated decline",
-    }],
+    rules: [
+      {
+        type: "decline",
+        enabled: true,
+        code: "PROVIDER_DECLINED",
+        message: "Simulated decline",
+      },
+    ],
   },
   {
     id: "latency",
     name: "High Latency",
     description: "Introduce artificial provider processing delay.",
     icon: Zap,
-    rules: [{ type: "latency", enabled: true, delayMs: 5000 }],
+    rules: [{ type: "latency", enabled: true, delayMs: 1500 }],
   },
   {
     id: "error",
     name: "Provider Error",
     description: "Simulate an internal provider failure.",
     icon: Bug,
-    rules: [{
-      type: "error",
-      enabled: true,
-      statusCode: 500,
-      code: "INTERNAL_ERROR",
-      message: "Simulated provider error",
-    }],
+    rules: [
+      {
+        type: "error",
+        enabled: true,
+        statusCode: 500,
+        code: "INTERNAL_ERROR",
+        message: "Simulated provider error",
+      },
+    ],
   },
 ];
-
-const TERMINAL_STATUSES = new Set([
-  "AUTHORIZED",
-  "CAPTURED",
-  "FAILED",
-  "CANCELLED",
-  "UNKNOWN",
-]);
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -102,11 +102,16 @@ export function ReliabilityLab() {
   const runningRef = useRef(false);
 
   const scenario = SCENARIOS.find((item) => item.id === scenarioId);
+  const canRun =
+    Boolean(auth?.session?.isDemo) &&
+    Boolean(auth?.user?.isDemo) &&
+    Boolean(auth?.membership?.merchant?.isDemo) &&
+    Boolean(auth?.permissions?.includes("payments.create"));
 
   const faultsQuery = useQuery({
     queryKey: ["provider-faults", auth?.merchantId],
     queryFn: () => apiClient.get("/api/v1/sandbox/faults"),
-    enabled: Boolean(auth),
+    enabled: canRun,
   });
 
   const faults = getPayload(faultsQuery.data).faults ?? {
@@ -133,7 +138,7 @@ export function ReliabilityLab() {
   };
 
   const runTest = async () => {
-    if (!auth || runningRef.current) return;
+    if (!canRun || runningRef.current) return;
 
     runningRef.current = true;
     setRunning(true);
@@ -141,6 +146,7 @@ export function ReliabilityLab() {
     setLogs([]);
 
     let faultApplied = false;
+    const testStartedAt = performance.now();
 
     try {
       if (faults.enabled) {
@@ -198,8 +204,9 @@ export function ReliabilityLab() {
 
       let latestStatus = null;
       let completed = false;
+      let sawUnknown = false;
 
-      for (let attempt = 0; attempt < 12; attempt++) {
+      for (let attempt = 0; attempt < 20; attempt++) {
         const response = await apiClient.get(
           `/api/v1/payments/${encodeURIComponent(targetId)}`,
         );
@@ -212,20 +219,55 @@ export function ReliabilityLab() {
           log(`Payment status: ${status ?? "Unavailable"}`);
         }
 
-        if (TERMINAL_STATUSES.has(status)) {
+        if (status === "UNKNOWN") sawUnknown = true;
+
+        const scenarioComplete =
+          (scenario.id === "timeout" &&
+            sawUnknown &&
+            ["AUTHORIZED", "CAPTURED"].includes(status)) ||
+          (scenario.id === "decline" && status === "FAILED") ||
+          (scenario.id === "latency" && status === "CAPTURED") ||
+          (scenario.id === "error" && ["FAILED", "UNKNOWN"].includes(status));
+
+        if (scenarioComplete) {
           completed = true;
           break;
         }
 
-        if (attempt < 11) await sleep(2500);
+        if (attempt < 19) await sleep(2000);
       }
 
       const expected = {
-        timeout: ["UNKNOWN"],
+        timeout: ["AUTHORIZED", "CAPTURED"],
         decline: ["FAILED"],
-        latency: ["AUTHORIZED", "CAPTURED"],
+        latency: ["CAPTURED"],
         error: ["FAILED", "UNKNOWN"],
       }[scenario.id];
+
+      const operationsResponse = await apiClient.get(
+        "/api/v1/sandbox/provider-operations?limit=20",
+      );
+      const operations = getPayload(operationsResponse).operations ?? [];
+      const paymentOperations = operations.filter(
+        (operation) => operation.paymentId === targetId,
+      );
+      for (const operation of paymentOperations.reverse()) {
+        const durationMs =
+          operation.processingCompletedAt && operation.createdAt
+            ? Math.max(
+                0,
+                new Date(operation.processingCompletedAt).getTime() -
+                  new Date(operation.createdAt).getTime(),
+              )
+            : null;
+        log(
+          `${operation.type}: ${operation.state}${
+            operation.faultInjected
+              ? ` (fault: ${operation.faultInjected})`
+              : ""
+          }${durationMs === null ? "" : ` in ${durationMs} ms`}`,
+        );
+      }
 
       if (!completed) {
         setResult({
@@ -233,10 +275,16 @@ export function ReliabilityLab() {
           message:
             "The payment did not reach an expected observable state within the test window.",
         });
-      } else if (expected.includes(latestStatus)) {
+      } else if (
+        expected.includes(latestStatus) &&
+        (scenario.id !== "timeout" || sawUnknown)
+      ) {
         setResult({
           status: "passed",
-          message: `Observed expected payment status: ${latestStatus}.`,
+          message:
+            scenario.id === "timeout"
+              ? `Observed UNKNOWN and successful reconciliation to ${latestStatus}.`
+              : `Observed expected payment status: ${latestStatus}.`,
         });
       } else {
         setResult({
@@ -246,6 +294,9 @@ export function ReliabilityLab() {
       }
 
       log("Scenario observation completed");
+      log(
+        `End-to-end observation time: ${Math.round(performance.now() - testStartedAt)} ms`,
+      );
     } catch (error) {
       log(error?.message ?? "Test failed", "error");
 
@@ -285,13 +336,21 @@ export function ReliabilityLab() {
   return (
     <div className="space-y-6">
       <header>
-        <h1 className="text-2xl font-bold tracking-tight">
-          Reliability Lab
-        </h1>
+        <h1 className="text-2xl font-bold tracking-tight">Reliability Lab</h1>
         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
           Inject synthetic provider failures and observe payment recovery.
         </p>
       </header>
+
+      {!canRun && (
+        <div
+          role="alert"
+          className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800"
+        >
+          Fault injection requires a demo merchant session with payment creation
+          permission.
+        </div>
+      )}
 
       {faults.enabled && (
         <div
@@ -331,9 +390,7 @@ export function ReliabilityLab() {
                   className="h-5 w-5 text-blue-600 dark:text-blue-400"
                   aria-hidden="true"
                 />
-                {selected && (
-                  <CheckCircle2 className="h-4 w-4 text-blue-600" />
-                )}
+                {selected && <CheckCircle2 className="h-4 w-4 text-blue-600" />}
               </div>
               <p className="mt-3 text-sm font-semibold">{item.name}</p>
               <p className="mt-1 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
@@ -390,7 +447,7 @@ export function ReliabilityLab() {
 
             <Button
               className="w-full"
-              disabled={!auth || running || faults.enabled}
+              disabled={!canRun || running || faults.enabled}
               onClick={runTest}
             >
               {running ? (
@@ -402,8 +459,8 @@ export function ReliabilityLab() {
             </Button>
 
             <p className="text-xs leading-relaxed text-slate-500">
-              This test observes payment status only. It does not
-              independently verify ledger consistency or recovery behavior.
+              Scenarios use the real payment worker and mock provider. Logs are
+              derived from persisted payment and provider-operation state.
             </p>
           </CardContent>
         </Card>
@@ -419,9 +476,7 @@ export function ReliabilityLab() {
               className="h-72 space-y-2 overflow-y-auto rounded-lg bg-slate-950 p-4 font-mono text-xs"
             >
               {logs.length === 0 ? (
-                <p className="text-slate-500">
-                  Run a test to view activity.
-                </p>
+                <p className="text-slate-500">Run a test to view activity.</p>
               ) : (
                 logs.map((entry, index) => (
                   <p
@@ -432,9 +487,7 @@ export function ReliabilityLab() {
                         : "text-emerald-400"
                     }
                   >
-                    <span className="text-slate-500">
-                      [{entry.time}]
-                    </span>{" "}
+                    <span className="text-slate-500">[{entry.time}]</span>{" "}
                     {entry.message}
                   </p>
                 ))
