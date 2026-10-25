@@ -33,3 +33,14 @@ export function formatMinorUnits(value, currency) {
 }
 
 export const formatMoney = formatMinorUnits;
+
+export function majorToMinorUnits(value) {
+  const normalized = String(value ?? "").trim();
+  const match = /^(0|[1-9]\d*)(?:\.(\d{1,2}))?$/.exec(normalized);
+
+  if (!match) return null;
+
+  const minor =
+    BigInt(match[1]) * 100n + BigInt((match[2] ?? "").padEnd(2, "0") || "0");
+  return minor > 0n && minor <= 1_000_000_000_000n ? minor.toString() : null;
+}
