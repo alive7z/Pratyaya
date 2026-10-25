@@ -97,11 +97,11 @@ function setResponseHeaders(upstream, res) {
   for (const [name, value] of upstream.headers.entries()) {
     if (
       excluded.has(name.toLowerCase()) ||
-      name.toLowerCase() === "set-cookie"
+      name.toLowerCase() === "set-cookie" ||
+      name.toLowerCase() === "content-encoding"
     ) {
       continue;
     }
-
     res.setHeader(name, value);
   }
 
