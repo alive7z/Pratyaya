@@ -1,4 +1,3 @@
-
 import { createHmac, randomUUID } from "node:crypto";
 import { AppError } from "../../../lib/errors.js";
 
@@ -6,8 +5,7 @@ const DEFAULT_TIMEOUT_MS = 15000;
 const MAX_RETRIES = 3;
 const BASE_RETRY_DELAY_MS = 500;
 
-const delay = (ms) =>
-  new Promise((resolve) => setTimeout(resolve, ms));
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export function createProviderClient({
   baseUrl,
@@ -108,11 +106,7 @@ export function createProviderClient({
       try {
         const response = await fetchFn(url, {
           method,
-          headers: buildHeaders(
-            bodyText,
-            idempotencyKey,
-            selectedProviderId,
-          ),
+          headers: buildHeaders(bodyText, idempotencyKey, selectedProviderId),
           body: method === "GET" ? undefined : bodyText,
           signal: controller.signal,
           redirect: "manual",
@@ -182,7 +176,9 @@ export function createProviderClient({
                 "PROVIDER_TIMEOUT",
                 "Provider request timed out",
               )
-            : ["ECONNREFUSED", "ENOTFOUND", "EHOSTUNREACH"].includes(networkCode)
+            : ["ECONNREFUSED", "ENOTFOUND", "EHOSTUNREACH"].includes(
+                  networkCode,
+                )
               ? new AppError(
                   503,
                   "PROVIDER_UNREACHABLE",
@@ -211,8 +207,7 @@ export function createProviderClient({
         clearTimeout(timeoutId);
       }
 
-      const backoff =
-        baseRetryDelayMs * 2 ** attempt + Math.random() * 100;
+      const backoff = baseRetryDelayMs * 2 ** attempt + Math.random() * 100;
 
       await delay(backoff);
     }
@@ -227,6 +222,7 @@ export function createProviderClient({
     paymentMethod,
     description,
     metadata,
+    simulationFault,
     idempotencyKey,
     merchantId,
     providerId: requestedProviderId,
@@ -243,6 +239,7 @@ export function createProviderClient({
         paymentMethod,
         description,
         metadata,
+        simulationFault,
       },
       idempotencyKey,
       requestedProviderId,
