@@ -4,6 +4,22 @@ import { InboxEvent } from "../webhooks/inbox-event.model.js";
 import { OutboxEvent } from "../payments/outbox-event.model.js";
 import { ProviderOperation } from "../payments/operations/provider-operation.model.js";
 
+const merchantFaults = new Map();
+
+function merchantKey(auth) {
+  return String(auth.merchantId);
+}
+
+function assertFaultInjectionAllowed(auth, config) {
+  if (!auth?.isDemo || config.nodeEnv === "production") {
+    throw new AppError(
+      403,
+      "SANDBOX_ONLY",
+      "Provider fault injection is available only in non-production demo sessions",
+    );
+  }
+}
+
 function sanitizeFaultConfig(faults) {
   if (!faults || !faults.enabled) return { enabled: false, rules: [] };
   return {
@@ -148,6 +164,7 @@ export async function getProviderOperations({ auth, query }) {
   return {
     operations: operations.map((op) => ({
       id: String(op._id),
+      paymentId: String(op.paymentId),
       type: op.type,
       state: op.state,
       providerOperationId: op.providerOperationId,
@@ -163,26 +180,30 @@ export async function getProviderOperations({ auth, query }) {
   };
 }
 
-export async function setProviderFaults({ _auth, body, config }) {
-  if (!config.faults) {
-    throw new AppError(
-      400,
-      "FAULTS_NOT_CONFIGURED",
-      "Fault injection not configured",
-    );
-  }
-
+export async function setProviderFaults({ auth, body, config }) {
+  assertFaultInjectionAllowed(auth, config);
   const sanitized = sanitizeFaultConfig(body);
-  config.faults = sanitized;
+  merchantFaults.set(merchantKey(auth), sanitized);
 
   return { faults: sanitized, updated: true };
 }
 
-export async function getProviderFaults({ config }) {
-  return { faults: sanitizeFaultConfig(config.faults) };
+export async function getProviderFaults({ auth, config }) {
+  assertFaultInjectionAllowed(auth, config);
+  return {
+    faults: sanitizeFaultConfig(merchantFaults.get(merchantKey(auth))),
+  };
 }
 
-export async function clearProviderFaults({ config }) {
-  config.faults = { enabled: false, rules: [] };
+export async function clearProviderFaults({ auth, config }) {
+  assertFaultInjectionAllowed(auth, config);
+  merchantFaults.delete(merchantKey(auth));
   return { faults: { enabled: false, rules: [] }, cleared: true };
+}
+
+export function getActiveProviderFault(auth) {
+  if (!auth?.isDemo) return null;
+  const faults = merchantFaults.get(merchantKey(auth));
+  if (!faults?.enabled) return null;
+  return faults.rules.find((rule) => rule.enabled) ?? null;
 }
