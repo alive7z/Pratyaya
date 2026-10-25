@@ -1,7 +1,12 @@
 import mongoose from "mongoose";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { LEDGER_EVENT_TYPES, PAYMENT_STATUS } from "@pratyaya/shared";
+import {
+  LEDGER_EVENT_TYPES,
+  OPERATION_STATES,
+  OUTBOX_EVENT_TYPES,
+  PAYMENT_STATUS,
+} from "@pratyaya/shared";
 import { createApp } from "../../src/app.js";
 import { loadConfig } from "../../src/config/env.js";
 import { connectMongo, disconnectMongo } from "../../src/db/mongoose.js";
@@ -24,6 +29,13 @@ import { runDemoSeed } from "../../src/modules/demo/demo.seed.js";
 import { OutboxEvent } from "../../src/modules/payments/outbox-event.model.js";
 import { PaymentEvent } from "../../src/modules/payments/payment-event.model.js";
 import { Payment } from "../../src/modules/payments/payment.model.js";
+import { ProviderOperation } from "../../src/modules/payments/operations/provider-operation.model.js";
+import { createPaymentOrchestratorService } from "../../src/modules/payments/operations/payment-orchestrator.service.js";
+import { IdempotencyRecord } from "../../src/modules/payments/idempotency-record.model.js";
+import { createPayment } from "../../src/modules/payments/payment.service.js";
+import { Refund } from "../../src/modules/payments/refund.model.js";
+import { createRefundService } from "../../src/modules/payments/refund.service.js";
+import { RiskDecision } from "../../src/modules/risk/risk-decision.model.js";
 
 const enabled = process.env.RUN_INTEGRATION_TESTS === "1";
 const logger = { info() {}, warn() {}, error() {} };
@@ -70,6 +82,10 @@ describe.skipIf(!enabled)("MongoDB ledger transactions", () => {
       PaymentEvent.collection.deleteMany(filter),
       IntegrityReport.collection.deleteMany(filter),
       Payment.collection.deleteMany(filter),
+      RiskDecision.collection.deleteMany(filter),
+      IdempotencyRecord.collection.deleteMany(filter),
+      Refund.collection.deleteMany(filter),
+      ProviderOperation.collection.deleteMany(filter),
     ]);
     await disconnectMongo();
   });
@@ -190,6 +206,43 @@ describe.skipIf(!enabled)("MongoDB ledger transactions", () => {
     ).toBe(0);
   });
 
+  it("rolls back the risk decision with payment creation in the same session", async () => {
+    const reference = `RISK-ROLLBACK-${Date.now()}`;
+    const idempotencyKey = `risk-rollback-${Date.now()}`;
+
+    await expect(
+      createPayment({
+        auth: {
+          merchantId,
+          role: "MERCHANT",
+          userId: new mongoose.Types.ObjectId(),
+          isDemo: true,
+        },
+        body: {
+          amountMinor: "2500",
+          currency: "INR",
+          merchantReference: reference,
+          customerReference: "Risk rollback fixture",
+        },
+        req: {
+          get(name) {
+            return name.toLowerCase() === "idempotency-key"
+              ? idempotencyKey
+              : undefined;
+          },
+        },
+        injectFailureAfterRisk: true,
+      }),
+    ).rejects.toThrow("Injected failure after risk decision");
+
+    expect(
+      await Payment.countDocuments({ merchantId, reference }),
+    ).toBe(0);
+    expect(
+      await RiskDecision.countDocuments({ merchantId }),
+    ).toBe(0);
+  });
+
   it("makes sequential and concurrent duplicate source events idempotent", async () => {
     const first = await post("duplicate-post");
     const replay = await post("duplicate-post");
@@ -290,6 +343,133 @@ describe.skipIf(!enabled)("MongoDB ledger transactions", () => {
         amountMinor: "70000",
       }),
     ).rejects.toMatchObject({ code: "REFUND_EXCEEDS_CAPTURE" });
+  });
+
+  it("marks timed-out authorization unknown and reconciles with the same operation id", async () => {
+    const payment = await Payment.create({
+      merchantId,
+      reference: `RECONCILE-${Date.now()}`,
+      amountMinor: 4200n,
+      currency: "INR",
+      status: PAYMENT_STATUS.QUEUED,
+      isDemo: true,
+    });
+    const auth = {
+      merchantId,
+      role: "system",
+      userId: new mongoose.Types.ObjectId(),
+      isDemo: true,
+    };
+    let dispatchedOperationId;
+    let reconciledOperationId;
+    const providerClient = {
+      async authorize(payload) {
+        dispatchedOperationId = payload.clientOperationId;
+        const error = new Error("synthetic provider timeout");
+        error.code = "PROVIDER_TIMEOUT";
+        throw error;
+      },
+      async getOperation({ operationId }) {
+        reconciledOperationId = operationId;
+        return {
+          data: {
+            operationId,
+            status: "SUCCEEDED",
+            providerReference: `provider-${operationId}`,
+          },
+        };
+      },
+    };
+    const orchestrator = await createPaymentOrchestratorService(
+      config,
+      logger,
+      { providerClient },
+    );
+
+    const initiated = await orchestrator.initiateAuthorization({
+      auth,
+      paymentId: payment._id,
+      idempotencyKey: `reconcile-${payment._id}`,
+    });
+    const operationId = String(initiated.providerOperation._id);
+    const timedOut = await orchestrator.processAuthorization({
+      auth,
+      providerOperationId: operationId,
+    });
+
+    expect(timedOut.providerOperation.state).toBe(OPERATION_STATES.UNKNOWN);
+    expect(timedOut.payment.status).toBe(PAYMENT_STATUS.UNKNOWN);
+    expect(
+      await OutboxEvent.countDocuments({
+        merchantId,
+        aggregateId: payment._id,
+        eventType: OUTBOX_EVENT_TYPES.PAYMENT_RECONCILIATION_REQUESTED,
+      }),
+    ).toBe(1);
+
+    const reconciled = await orchestrator.reconcileAuthorization({
+      auth,
+      providerOperationId: operationId,
+    });
+    expect(reconciled.payment.status).toBe(PAYMENT_STATUS.AUTHORIZED);
+    expect(reconciled.providerOperation.state).toBe(
+      OPERATION_STATES.SUCCEEDED,
+    );
+    expect(dispatchedOperationId).toBe(reconciledOperationId);
+    expect(
+      await OutboxEvent.countDocuments({
+        merchantId,
+        aggregateId: payment._id,
+        eventType: OUTBOX_EVENT_TYPES.PAYMENT_CAPTURE_REQUESTED,
+      }),
+    ).toBe(1);
+  });
+
+  it("reserves a requested refund without incrementing confirmed refundedMinor", async () => {
+    const payment = await Payment.create({
+      merchantId,
+      reference: `REFUND-RESERVATION-${Date.now()}`,
+      amountMinor: 10000n,
+      currency: "INR",
+      status: PAYMENT_STATUS.CAPTURING,
+      isDemo: true,
+    });
+
+    await confirmTrustedCapture({
+      merchantId,
+      paymentId: payment._id,
+      providerEventId: `capture-reservation-${payment._id}`,
+      amountMinor: "10000",
+      isDemo: true,
+    });
+
+    const refundService = await createRefundService(config, logger);
+    const key = `refund-reservation-${Date.now()}`;
+    const result = await refundService.requestRefund({
+      auth: {
+        merchantId,
+        role: "MERCHANT",
+        userId: new mongoose.Types.ObjectId(),
+        isDemo: true,
+      },
+      paymentId: payment._id,
+      body: {
+        amountMinor: "2500",
+        currency: "INR",
+        reason: "Reservation regression test",
+      },
+      req: {
+        get(name) {
+          return name.toLowerCase() === "idempotency-key" ? key : undefined;
+        },
+      },
+    });
+
+    const persisted = await Payment.findById(payment._id).lean();
+    expect(result.refund.status).toBe("REQUESTED");
+    expect(result.refund.amountMinor).toBe("2500");
+    expect(persisted.status).toBe(PAYMENT_STATUS.REFUND_PENDING);
+    expect(persisted.refundedMinor.toString()).toBe("0");
   });
 
   it("does not let concurrent refunds exceed the captured amount", async () => {

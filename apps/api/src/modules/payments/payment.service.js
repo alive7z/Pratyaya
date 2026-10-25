@@ -21,6 +21,7 @@ import {
 } from "./payment.state-machine.js";
 import {
   fingerprintPaymentCreate,
+  fingerprintObject,
   getIdempotencyKey,
   hashIdempotencyKey,
   hashPayload,
@@ -49,7 +50,12 @@ async function getOrchestrator(config, logger) {
   return orchestrator;
 }
 
-export async function createPayment({ auth, body, req }) {
+export async function createPayment({
+  auth,
+  body,
+  req,
+  injectFailureAfterRisk = false,
+}) {
   const merchantId = auth.merchantId;
   const key = getIdempotencyKey(req);
   const keyHash = hashIdempotencyKey(key);
@@ -201,6 +207,10 @@ export async function createPayment({ auth, body, req }) {
         "RULE_ENGINE",
         { session },
       );
+
+      if (injectFailureAfterRisk) {
+        throw new Error("Injected failure after risk decision");
+      }
 
       if (riskResult.decision === "BLOCK") {
         await Payment.findOneAndUpdate(
@@ -535,7 +545,9 @@ export async function cancelPayment({ auth, paymentId, req }) {
   const merchantId = auth.merchantId;
   const key = getIdempotencyKey(req);
   const keyHash = hashIdempotencyKey(key);
-  const requestFingerprint = hashPayload({ paymentId });
+  const requestFingerprint = hashPayload(
+    fingerprintObject({ paymentId }),
+  );
 
   return runInTransaction(async (session) => {
     const existingIdem = await IdempotencyRecord.findOne(

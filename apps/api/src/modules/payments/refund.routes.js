@@ -97,8 +97,8 @@ export function createRefundRouter({ config }) {
         const result = await refundService.requestRefund({
           auth: req.auth,
           paymentId: req.params.paymentId,
-          body: req.body,
-          req: { headers: { "idempotency-key": key } },
+          body: req.validated.body,
+          req,
         });
         res.status(result.idempotent ? 200 : 201).json({
           data: result.refund,

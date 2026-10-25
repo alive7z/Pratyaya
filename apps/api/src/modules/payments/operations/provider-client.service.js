@@ -9,12 +9,15 @@ const BASE_RETRY_DELAY_MS = 500;
 const delay = (ms) =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
-function createProviderClient({
+export function createProviderClient({
   baseUrl,
   hmacSecret,
   providerId = "alpha",
   logger,
   fetchFn = fetch,
+  defaultTimeoutMs = DEFAULT_TIMEOUT_MS,
+  maxRetries = MAX_RETRIES,
+  baseRetryDelayMs = BASE_RETRY_DELAY_MS,
 }) {
   const normalizedBaseUrl = baseUrl.replace(/\/+$/, "");
 
@@ -81,8 +84,8 @@ function createProviderClient({
     payload,
     idempotencyKey,
     requestedProviderId,
-    timeoutMs = DEFAULT_TIMEOUT_MS,
-    retries = MAX_RETRIES,
+    timeoutMs = defaultTimeoutMs,
+    retries = maxRetries,
   }) {
     const selectedProviderId = requestedProviderId ?? providerId;
     const url = resolveUrl(path, selectedProviderId);
@@ -209,7 +212,7 @@ function createProviderClient({
       }
 
       const backoff =
-        BASE_RETRY_DELAY_MS * 2 ** attempt + Math.random() * 100;
+        baseRetryDelayMs * 2 ** attempt + Math.random() * 100;
 
       await delay(backoff);
     }

@@ -64,7 +64,7 @@ export async function disconnectMongo() {
 
 export async function pingMongo(
   connection = mongoose.connection,
-  timeoutMs = 2000,
+  timeoutMs = 5000,
 ) {
   if (connection.readyState !== 1 || !connection.db) {
     throw new Error("MongoDB is not connected");

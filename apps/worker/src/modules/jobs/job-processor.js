@@ -253,6 +253,7 @@ async function processRefundJob(job, orchestrator) {
   return orchestrator.initiateRefund({
     auth,
     paymentId,
+    refundId: job.payload.refundId ?? job.refundId,
     amountMinor,
     reason,
     idempotencyKey: job.jobId,

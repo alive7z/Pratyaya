@@ -4,6 +4,9 @@ import { JOB_STATUS, JOB_TYPES } from "@pratyaya/shared";
 import { loadWorkerConfig } from "../src/config.js";
 import { connectMongo, disconnectMongo } from "../src/db/mongoose.js";
 import { Job } from "../src/modules/jobs/job.model.js";
+import { processJob } from "../src/modules/jobs/job-processor.js";
+import { IntegrityReport } from "../../api/src/modules/ledger/integrity-report.model.js";
+import { AuditLog } from "../../api/src/modules/audit/audit.model.js";
 import {
   claimJobs,
   createJob,
@@ -25,7 +28,11 @@ describe.skipIf(!enabled)("worker job leases", () => {
 
   afterAll(async () => {
     if (mongoose.connection.readyState === 1) {
-      await Job.deleteMany({ merchantId });
+      await Promise.all([
+        Job.deleteMany({ merchantId }),
+        IntegrityReport.deleteMany({ merchantId }),
+        AuditLog.deleteMany({ merchantId }),
+      ]);
     }
     await disconnectMongo();
   });
@@ -106,5 +113,30 @@ describe.skipIf(!enabled)("worker job leases", () => {
 
     expect(recoveredJob?.status).toBe(JOB_STATUS.RETRY);
     expect(recoveredJob?.lastError).toBe("Worker lease expired");
+  });
+
+  it("executes ledger integrity jobs and persists the real report", async () => {
+    const jobId = `integrity-${Date.now()}`;
+    const result = await processJob(
+      {
+        jobId,
+        type: JOB_TYPES.VERIFY_LEDGER_INTEGRITY,
+        merchantId,
+        payload: { currency: "INR" },
+        attemptCount: 1,
+        isDemo: true,
+      },
+      workerId,
+    );
+
+    const report = await IntegrityReport.findOne({
+      _id: result.reportId,
+      merchantId,
+      requestId: jobId,
+    }).lean();
+
+    expect(report).toBeTruthy();
+    expect(result.status).toBe(report.status);
+    expect(report.checks.length).toBeGreaterThan(0);
   });
 });

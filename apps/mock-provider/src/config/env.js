@@ -244,9 +244,14 @@ export function loadConfig() {
         Object.freeze({
           ...provider,
           faults: Object.freeze({
-            ...provider.faults,
+            ...(env.PROVIDER_FAULTS.enabled
+              ? env.PROVIDER_FAULTS
+              : provider.faults),
             rules: Object.freeze(
-              provider.faults.rules.map((rule) =>
+              (env.PROVIDER_FAULTS.enabled
+                ? env.PROVIDER_FAULTS.rules
+                : provider.faults.rules
+              ).map((rule) =>
                 Object.freeze({ ...rule }),
               ),
             ),

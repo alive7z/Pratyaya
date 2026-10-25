@@ -177,12 +177,14 @@ async function createProviderOperation(
     amountMinor,
     idempotencyKey,
     requestPayload,
+    refundId,
   },
 ) {
   const [operation] = await ProviderOperation.create(
     [
       {
         paymentId: payment._id,
+        refundId: refundId ?? null,
         merchantId: auth.merchantId,
         type,
         providerOperationId: clientOperationId,
@@ -369,8 +371,14 @@ async function markUnknown(operation, auth, reason) {
   });
 }
 
-export async function createPaymentOrchestratorService(config, logger) {
-  const providerClient = createProviderClientService(config, logger);
+export async function createPaymentOrchestratorService(
+  config,
+  logger,
+  dependencies = {},
+) {
+  const providerClient =
+    dependencies.providerClient ??
+    createProviderClientService(config, logger);
 
   async function initiateAuthorization({
     auth,
@@ -587,6 +595,7 @@ export async function createPaymentOrchestratorService(config, logger) {
   async function initiateRefund({
     auth,
     paymentId,
+    refundId,
     amountMinor,
     reason,
     idempotencyKey,
@@ -706,6 +715,7 @@ export async function createPaymentOrchestratorService(config, logger) {
             reason,
             metadata: payment.metadata,
           },
+          refundId,
         },
       );
 
@@ -1036,6 +1046,7 @@ export async function createPaymentOrchestratorService(config, logger) {
           providerResponse.operationId ??
           operation.providerOperationId,
         amountMinor: operation.amountMinor.toString(),
+        refundId: operation.refundId,
         actor: "provider",
         requestId: operation.idempotencyKey,
         isDemo: Boolean(auth.isDemo),
@@ -1100,6 +1111,27 @@ export async function createPaymentOrchestratorService(config, logger) {
       current.responsePayload = providerResponse;
       current.processingCompletedAt = now();
       await current.save({ session });
+
+      if (current.refundId) {
+        const { Refund } = await import("../refund.model.js");
+        await Refund.updateOne(
+          {
+            _id: current.refundId,
+            merchantId: auth.merchantId,
+            status: { $ne: "SUCCEEDED" },
+          },
+          {
+            $set: {
+              status: "FAILED",
+              statusReason:
+                providerResponse.statusReason ?? "Provider declined refund",
+              failedAt: now(),
+              reservedMinor: 0n,
+            },
+          },
+          { session },
+        );
+      }
 
       const remainingPending = await ProviderOperation.countDocuments({
         paymentId: payment._id,

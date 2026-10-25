@@ -192,6 +192,54 @@ describe.skipIf(!enabled)("Mock provider operations", () => {
     expect(res.body.data.status).toBe("SUCCEEDED");
   });
 
+  it("persists timeout outcomes as unknown and reuses the same operation ID for lookup", async () => {
+    const timeoutConfig = {
+      ...config,
+      providers: config.providers.map((provider, index) =>
+        index === 0
+          ? {
+              ...provider,
+              faults: {
+                enabled: true,
+                rules: [
+                  {
+                    type: "timeout",
+                    enabled: true,
+                    delayMs: 5,
+                  },
+                ],
+              },
+            }
+          : provider,
+      ),
+    };
+    const timeoutApp = createProviderApp({
+      database: { ping: () => pingMongo() },
+      config: timeoutConfig,
+      logger,
+    });
+    const body = baseAuthRequest();
+
+    const timedOut = await request(timeoutApp)
+      .post(`/provider/${config.providers[0].providerId}/v1/authorizations`)
+      .set(authHeaders(body))
+      .send(body)
+      .expect(202);
+
+    expect(timedOut.body.data.operationId).toBe(body.clientOperationId);
+    expect(timedOut.body.data.status).toBe("UNKNOWN_TO_CLIENT");
+
+    const observed = await request(timeoutApp)
+      .get(
+        `/provider/${config.providers[0].providerId}/v1/operations/${body.clientOperationId}`,
+      )
+      .set(authHeaders())
+      .expect(200);
+
+    expect(observed.body.data.operationId).toBe(body.clientOperationId);
+    expect(observed.body.data.status).toBe("UNKNOWN_TO_CLIENT");
+  });
+
   it("lists operations for a merchant", async () => {
     const res = await signedGet("/v1/operations")
       .query({ limit: 10 })

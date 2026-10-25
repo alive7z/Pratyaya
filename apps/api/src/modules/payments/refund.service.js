@@ -16,6 +16,7 @@ import { recordPaymentEvent } from "./payment.repository.js";
 import { createPaymentOrchestratorService } from "./operations/payment-orchestrator.service.js";
 import {
   getIdempotencyKey,
+  fingerprintObject,
   hashIdempotencyKey,
   hashPayload,
 } from "../../lib/idempotency.js";
@@ -31,12 +32,14 @@ export async function createRefundService(config, logger) {
     const merchantId = auth.merchantId;
     const key = getIdempotencyKey(req);
     const keyHash = hashIdempotencyKey(key);
-    const fingerprint = hashPayload({
-      paymentId,
-      amountMinor: body.amountMinor,
-      currency: body.currency,
-      reason: body.reason,
-    });
+    const fingerprint = hashPayload(
+      fingerprintObject({
+        paymentId,
+        amountMinor: body.amountMinor,
+        currency: body.currency,
+        reason: body.reason ?? null,
+      }),
+    );
 
     return runInTransaction(async (session) => {
       const existing = await Refund.findOne(
@@ -92,7 +95,27 @@ export async function createRefundService(config, logger) {
       const capturedMinor = BigInt(
         payment.capturedMinor ?? payment.amountMinor,
       );
-      const remainingRefundable = capturedMinor - payment.refundedMinor;
+      const activeRefunds = await Refund.find({
+        paymentId: payment._id,
+        merchantId,
+        status: {
+          $in: [
+            REFUND_STATUS.REQUESTED,
+            REFUND_STATUS.QUEUED,
+            REFUND_STATUS.PROCESSING,
+            REFUND_STATUS.UNKNOWN,
+          ],
+        },
+      })
+        .session(session)
+        .select("reservedMinor")
+        .lean();
+      const reservedMinor = activeRefunds.reduce(
+        (total, refund) => total + BigInt(refund.reservedMinor ?? 0n),
+        0n,
+      );
+      const remainingRefundable =
+        capturedMinor - BigInt(payment.refundedMinor ?? 0n) - reservedMinor;
       const refundAmount = BigInt(body.amountMinor);
 
       if (refundAmount <= 0n) {
@@ -130,26 +153,27 @@ export async function createRefundService(config, logger) {
         { session },
       );
 
-      const newRefunded = payment.refundedMinor + refundAmount;
-      const nextStatus =
-        newRefunded === capturedMinor
-          ? PAYMENT_STATUS.REFUNDED
-          : PAYMENT_STATUS.REFUND_PENDING;
-
-      await Payment.findOneAndUpdate(
+      const updatedPayment = await Payment.findOneAndUpdate(
         {
           _id: payment._id,
           merchantId,
           version: payment.version,
-          refundedMinor: payment.refundedMinor,
           status: { $in: allowedStatuses },
         },
         {
-          $set: { status: nextStatus, refundedMinor: newRefunded },
+          $set: { status: PAYMENT_STATUS.REFUND_PENDING },
           $inc: { version: 1 },
         },
-        { session },
+        { session, returnDocument: "after" },
       );
+
+      if (!updatedPayment) {
+        throw new AppError(
+          409,
+          "PAYMENT_CONCURRENCY_CONFLICT",
+          "Payment changed while reserving the refund",
+        );
+      }
 
       await recordPaymentEvent(
         {
@@ -157,7 +181,7 @@ export async function createRefundService(config, logger) {
           merchantId,
           eventType: "payment.refund.requested",
           fromStatus: payment.status,
-          toStatus: nextStatus,
+          toStatus: PAYMENT_STATUS.REFUND_PENDING,
           actorUserId: auth.user?._id ?? auth.userId,
           actorRole: auth.role,
           summary: `Refund requested: ${refundAmount.toString()} ${payment.currency}`,
@@ -399,17 +423,31 @@ export async function createRefundService(config, logger) {
       const capturedMinor = BigInt(
         payment.capturedMinor ?? payment.amountMinor,
       );
-      const newRefunded = payment.refundedMinor - refund.amountMinor;
+      const confirmedRefunded = BigInt(payment.refundedMinor ?? 0n);
+      const otherPending = await Refund.exists({
+        _id: { $ne: refund._id },
+        paymentId: payment._id,
+        merchantId: auth.merchantId,
+        status: {
+          $in: [
+            REFUND_STATUS.REQUESTED,
+            REFUND_STATUS.QUEUED,
+            REFUND_STATUS.PROCESSING,
+            REFUND_STATUS.UNKNOWN,
+          ],
+        },
+      }).session(session);
       let nextStatus;
-      if (newRefunded === 0n) nextStatus = PAYMENT_STATUS.CAPTURED;
-      else if (newRefunded === capturedMinor)
+      if (otherPending) nextStatus = PAYMENT_STATUS.REFUND_PENDING;
+      else if (confirmedRefunded === 0n) nextStatus = PAYMENT_STATUS.CAPTURED;
+      else if (confirmedRefunded === capturedMinor)
         nextStatus = PAYMENT_STATUS.REFUNDED;
       else nextStatus = PAYMENT_STATUS.PARTIALLY_REFUNDED;
 
       await Payment.findOneAndUpdate(
         { _id: payment._id, merchantId: auth.merchantId },
         {
-          $set: { status: nextStatus, refundedMinor: newRefunded },
+          $set: { status: nextStatus },
           $inc: { version: 1 },
         },
         { session },

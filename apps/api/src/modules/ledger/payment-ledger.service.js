@@ -340,6 +340,7 @@ export async function confirmTrustedRefund({
   paymentId,
   providerEventId,
   amountMinor,
+  refundId,
   actor = "trusted-synthetic-provider-fixture",
   requestId,
   isDemo = false,
@@ -496,6 +497,37 @@ export async function confirmTrustedRefund({
         isDemo,
         injectFailure,
       });
+
+      if (refundId) {
+        const { Refund } = await import("../payments/refund.model.js");
+        const refundUpdate = await Refund.updateOne(
+          {
+            _id: refundId,
+            merchantId,
+            paymentId: payment._id,
+            status: { $ne: "SUCCEEDED" },
+          },
+          {
+            $set: {
+              status: "SUCCEEDED",
+              confirmedMinor: refundAmount,
+              confirmedAt: new Date(),
+              providerOperationId: providerEventId,
+              providerReference: providerEventId,
+              reservedMinor: 0n,
+            },
+          },
+          { session },
+        );
+
+        if (refundUpdate.matchedCount !== 1) {
+          throw new AppError(
+            409,
+            "REFUND_STATE_CONFLICT",
+            "Refund state changed during confirmation",
+          );
+        }
+      }
 
       await recordPaymentEvent(
         {

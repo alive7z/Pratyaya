@@ -2,7 +2,7 @@ import { Router } from "express";
 import { withTimeout } from "../../lib/async.js";
 import { sendData } from "../../lib/response.js";
 
-const DEPENDENCY_TIMEOUT_MS = 2000;
+const DEPENDENCY_TIMEOUT_MS = 5000;
 
 async function checkDependency(name, runCheck) {
   const startedAt = performance.now();
