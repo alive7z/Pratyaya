@@ -86,9 +86,11 @@ describe("Routing components resilience", () => {
 
     expect(await screen.findByText("Routing Analytics")).toBeInTheDocument();
     expect(
-      screen.getByText("Routing Distribution by Provider"),
+      await screen.findByText("Routing Distribution by Provider"),
     ).toBeInTheDocument();
-    expect(screen.getByText("Strategy Usage")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Routing Strategy Usage"),
+    ).toBeInTheDocument();
   });
 
   it("renders RoutingDecisionExplorer and handles modal open/close without crashing", async () => {
@@ -129,10 +131,14 @@ describe("Routing components resilience", () => {
     expect(
       await screen.findByText("Routing Decision Explorer"),
     ).toBeInTheDocument();
-    expect(screen.getByText("Routing Decisions (1)")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Routing Decisions (1)"),
+    ).toBeInTheDocument();
 
     // Clicking the view button opens the details modal without throwing ReferenceError: X is not defined
-    const viewButton = screen.getByRole("button", { name: "" }); // Eye icon button
+    const viewButton = screen.getByRole("button", {
+      name: "View decision details",
+    });
     await user.click(viewButton);
 
     expect(screen.getByText("Routing Decision Details")).toBeInTheDocument();
