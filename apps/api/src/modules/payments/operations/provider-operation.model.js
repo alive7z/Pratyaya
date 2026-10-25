@@ -1,4 +1,3 @@
-
 import mongoose from "mongoose";
 import {
   OPERATION_TYPES,
@@ -201,10 +200,7 @@ providerOperationSchema.index(
 );
 
 providerOperationSchema.pre("validate", function () {
-  if (
-    this.amountMinor != null &&
-    this.amountMinor <= 0n
-  ) {
+  if (this.amountMinor != null && this.amountMinor <= 0n) {
     this.invalidate(
       "amountMinor",
       "Operation amount must be greater than zero",

@@ -1,4 +1,3 @@
-
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -56,9 +55,7 @@ function formatDate(value) {
 
   const date = new Date(value);
 
-  return Number.isNaN(date.getTime())
-    ? "—"
-    : date.toLocaleString();
+  return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString();
 }
 
 function formatTimeAgo(value) {
@@ -86,9 +83,7 @@ function formatTimeAgo(value) {
 function Metric({ label, value }) {
   return (
     <div className="rounded-lg bg-slate-50 p-3 dark:bg-slate-900">
-      <p className="text-xs text-slate-500 dark:text-slate-400">
-        {label}
-      </p>
+      <p className="text-xs text-slate-500 dark:text-slate-400">{label}</p>
       <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-white">
         {value ?? "—"}
       </p>
@@ -99,9 +94,7 @@ function Metric({ label, value }) {
 function Detail({ label, value }) {
   return (
     <div className="flex items-center justify-between gap-3 text-sm">
-      <span className="text-slate-500 dark:text-slate-400">
-        {label}
-      </span>
+      <span className="text-slate-500 dark:text-slate-400">{label}</span>
       <span className="text-right font-medium text-slate-900 dark:text-white">
         {value ?? "—"}
       </span>
@@ -150,29 +143,14 @@ function CircuitBreakerCard({ breaker, onReset, resetting }) {
 
       <CardContent className="space-y-4">
         <div className="grid grid-cols-2 gap-3">
-          <Metric
-            label="Failure Threshold"
-            value={breaker.failureThreshold}
-          />
-          <Metric
-            label="Current Failures"
-            value={breaker.failureCount}
-          />
-          <Metric
-            label="Success Threshold"
-            value={breaker.successThreshold}
-          />
-          <Metric
-            label="Success Count"
-            value={breaker.successCount}
-          />
+          <Metric label="Failure Threshold" value={breaker.failureThreshold} />
+          <Metric label="Current Failures" value={breaker.failureCount} />
+          <Metric label="Success Threshold" value={breaker.successThreshold} />
+          <Metric label="Success Count" value={breaker.successCount} />
         </div>
 
         <div className="space-y-3 border-t border-slate-200 pt-4 dark:border-slate-800">
-          <Detail
-            label="Total Requests"
-            value={breaker.totalRequests ?? "—"}
-          />
+          <Detail label="Total Requests" value={breaker.totalRequests ?? "—"} />
           <Detail
             label="Failed Requests"
             value={breaker.failedRequests ?? "—"}
@@ -293,14 +271,7 @@ export function CircuitBreakerMonitor() {
 
   const merchantId = auth?.merchantId ?? null;
 
-  const {
-    data,
-    isPending,
-    isError,
-    error,
-    isFetching,
-    refetch,
-  } = useQuery({
+  const { data, isPending, isError, error, isFetching, refetch } = useQuery({
     queryKey: ["circuit-breakers", merchantId],
     queryFn: () => apiClient.get("/api/v1/routing/circuit-breakers"),
     enabled: Boolean(auth),
@@ -366,12 +337,7 @@ export function CircuitBreakerMonitor() {
           disabled={isFetching}
           onClick={() => refetch()}
         >
-          <RefreshCw
-            className={cn(
-              "h-4 w-4",
-              isFetching && "animate-spin",
-            )}
-          />
+          <RefreshCw className={cn("h-4 w-4", isFetching && "animate-spin")} />
           Refresh
         </Button>
       </header>
@@ -430,9 +396,7 @@ export function CircuitBreakerMonitor() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">
-            Circuit Breaker States
-          </CardTitle>
+          <CardTitle className="text-base">Circuit Breaker States</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-3">
           {Object.entries(STATE_CONFIG).map(([state, config]) => {
@@ -448,9 +412,7 @@ export function CircuitBreakerMonitor() {
                     className="h-4 w-4 text-blue-600 dark:text-blue-400"
                     aria-hidden="true"
                   />
-                  <span className="text-sm font-semibold">
-                    {config.label}
-                  </span>
+                  <span className="text-sm font-semibold">{config.label}</span>
                 </div>
                 <p className="mt-2 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
                   {config.description}

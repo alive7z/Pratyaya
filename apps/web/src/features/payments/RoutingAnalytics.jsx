@@ -1,4 +1,3 @@
-
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -70,9 +69,7 @@ function Metric({ title, value, icon: Icon }) {
     <Card>
       <CardContent className="flex items-center justify-between gap-3 pt-5">
         <div>
-          <p className="text-sm text-slate-500 dark:text-slate-400">
-            {title}
-          </p>
+          <p className="text-sm text-slate-500 dark:text-slate-400">{title}</p>
           <p className="mt-2 text-2xl font-bold">{value}</p>
         </div>
         <Icon
@@ -96,9 +93,7 @@ function ChartCard({ title, children, empty }) {
             No data available
           </div>
         ) : (
-          <div className="h-72 w-full min-w-0">
-            {children}
-          </div>
+          <div className="h-72 w-full min-w-0">{children}</div>
         )}
       </CardContent>
     </Card>
@@ -230,12 +225,7 @@ export function RoutingAnalytics() {
         <>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {metrics.map(([title, value, Icon]) => (
-              <Metric
-                key={title}
-                title={title}
-                value={value}
-                icon={Icon}
-              />
+              <Metric key={title} title={title} value={value} icon={Icon} />
             ))}
           </div>
 
@@ -254,15 +244,8 @@ export function RoutingAnalytics() {
                     vertical={false}
                     stroke="#cbd5e1"
                   />
-                  <XAxis
-                    dataKey="name"
-                    tick={{ fontSize: 11 }}
-                    interval={0}
-                  />
-                  <YAxis
-                    allowDecimals={false}
-                    tick={{ fontSize: 11 }}
-                  />
+                  <XAxis dataKey="name" tick={{ fontSize: 11 }} interval={0} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
                   <Tooltip />
                   <Bar
                     dataKey="count"
@@ -320,14 +303,8 @@ export function RoutingAnalytics() {
                     vertical={false}
                     stroke="#cbd5e1"
                   />
-                  <XAxis
-                    dataKey="name"
-                    tick={{ fontSize: 11 }}
-                  />
-                  <YAxis
-                    tick={{ fontSize: 11 }}
-                    unit="ms"
-                  />
+                  <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} unit="ms" />
                   <Tooltip />
                   <Legend />
                   <Bar
@@ -348,9 +325,7 @@ export function RoutingAnalytics() {
 
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">
-                  Decision Reasons
-                </CardTitle>
+                <CardTitle className="text-base">Decision Reasons</CardTitle>
               </CardHeader>
               <CardContent>
                 {decisionReasons.length ? (
@@ -361,11 +336,7 @@ export function RoutingAnalytics() {
                         className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-50 p-3 dark:bg-slate-900"
                       >
                         <div className="flex min-w-0 flex-wrap items-center gap-2">
-                          <Badge
-                            variant={
-                              REASON_VARIANTS[name] ?? "secondary"
-                            }
-                          >
+                          <Badge variant={REASON_VARIANTS[name] ?? "secondary"}>
                             {name.replaceAll("_", " ")}
                           </Badge>
                           <span className="text-xs text-slate-500">
@@ -388,9 +359,8 @@ export function RoutingAnalytics() {
           </div>
 
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            Analytics are based on up to 100 recent routing decisions.
-            Provider latency values represent reported snapshots, not
-            historical trends.
+            Analytics are based on up to 100 recent routing decisions. Provider
+            latency values represent reported snapshots, not historical trends.
           </p>
         </>
       )}

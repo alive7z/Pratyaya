@@ -1,181 +1,131 @@
-
 import { Suspense, lazy } from "react";
-import {
-  Navigate,
-  Route,
-  Routes,
-  useLocation,
-} from "react-router-dom";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 
 import Layout from "../components/Layout.jsx";
 import { ErrorBoundary } from "../components/ErrorBoundary.jsx";
 import { useAuth } from "./AuthContext.jsx";
 
-const OverviewPage = lazy(() =>
-  import("../pages/OverviewPage.jsx")
-);
+const OverviewPage = lazy(() => import("../pages/OverviewPage.jsx"));
 
-const SystemHealthPage = lazy(() =>
-  import("../pages/SystemHealthPage.jsx")
-);
+const SystemHealthPage = lazy(() => import("../pages/SystemHealthPage.jsx"));
 
-const AuthPage = lazy(() =>
-  import("../pages/AuthPage.jsx")
-);
+const AuthPage = lazy(() => import("../pages/AuthPage.jsx"));
 
-const LedgerPage = lazy(() =>
-  import("../pages/LedgerPage.jsx")
-);
+const LedgerPage = lazy(() => import("../pages/LedgerPage.jsx"));
 
-const ComingSoonPage = lazy(() =>
-  import("../pages/ComingSoonPage.jsx")
-);
+const ComingSoonPage = lazy(() => import("../pages/ComingSoonPage.jsx"));
 
-const NotFoundPage = lazy(() =>
-  import("../pages/NotFoundPage.jsx")
-);
+const NotFoundPage = lazy(() => import("../pages/NotFoundPage.jsx"));
 
 const SettingsPage = lazy(() =>
   import("../pages/SettingsPage.jsx").then((module) => ({
     default: module.SettingsPage,
-  }))
+  })),
 );
 
 const PaymentDashboard = lazy(() =>
-  import("../features/payments/PaymentDashboard.jsx").then(
-    (module) => ({
-      default: module.PaymentDashboard,
-    })
-  )
+  import("../features/payments/PaymentDashboard.jsx").then((module) => ({
+    default: module.PaymentDashboard,
+  })),
 );
 
 const PaymentDetails = lazy(() =>
-  import("../features/payments/PaymentDetails.jsx").then(
-    (module) => ({
-      default: module.PaymentDetails,
-    })
-  )
+  import("../features/payments/PaymentDetails.jsx").then((module) => ({
+    default: module.PaymentDetails,
+  })),
 );
 
 const RefundManagement = lazy(() =>
-  import("../features/payments/RefundManagement.jsx").then(
-    (module) => ({
-      default: module.RefundManagement,
-    })
-  )
+  import("../features/payments/RefundManagement.jsx").then((module) => ({
+    default: module.RefundManagement,
+  })),
 );
 
 const ProviderMonitor = lazy(() =>
-  import("../features/payments/ProviderMonitor.jsx").then(
-    (module) => ({
-      default: module.ProviderMonitor,
-    })
-  )
+  import("../features/payments/ProviderMonitor.jsx").then((module) => ({
+    default: module.ProviderMonitor,
+  })),
 );
 
 const ReliabilityLab = lazy(() =>
-  import("../features/payments/ReliabilityLab.jsx").then(
-    (module) => ({
-      default: module.ReliabilityLab,
-    })
-  )
+  import("../features/payments/ReliabilityLab.jsx").then((module) => ({
+    default: module.ReliabilityLab,
+  })),
 );
 
 const WebhookExplorer = lazy(() =>
-  import("../features/payments/WebhookExplorer.jsx").then(
-    (module) => ({
-      default: module.WebhookExplorer,
-    })
-  )
+  import("../features/payments/WebhookExplorer.jsx").then((module) => ({
+    default: module.WebhookExplorer,
+  })),
 );
 
 const ProviderOverview = lazy(() =>
-  import("../features/payments/ProviderOverview.jsx").then(
-    (module) => ({
-      default: module.ProviderOverview,
-    })
-  )
+  import("../features/payments/ProviderOverview.jsx").then((module) => ({
+    default: module.ProviderOverview,
+  })),
 );
 
 const RoutingAnalytics = lazy(() =>
-  import("../features/payments/RoutingAnalytics.jsx").then(
-    (module) => ({
-      default: module.RoutingAnalytics,
-    })
-  )
+  import("../features/payments/RoutingAnalytics.jsx").then((module) => ({
+    default: module.RoutingAnalytics,
+  })),
 );
 
 const RoutingPolicyConfig = lazy(() =>
-  import("../features/payments/RoutingPolicyConfig.jsx").then(
-    (module) => ({
-      default: module.RoutingPolicyConfig,
-    })
-  )
+  import("../features/payments/RoutingPolicyConfig.jsx").then((module) => ({
+    default: module.RoutingPolicyConfig,
+  })),
 );
 
 const CircuitBreakerMonitor = lazy(() =>
-  import("../features/payments/CircuitBreakerMonitor.jsx").then(
-    (module) => ({
-      default: module.CircuitBreakerMonitor,
-    })
-  )
+  import("../features/payments/CircuitBreakerMonitor.jsx").then((module) => ({
+    default: module.CircuitBreakerMonitor,
+  })),
 );
 
 const RoutingDecisionExplorer = lazy(() =>
-  import("../features/payments/RoutingDecisionExplorer.jsx").then(
-    (module) => ({
-      default: module.RoutingDecisionExplorer,
-    })
-  )
+  import("../features/payments/RoutingDecisionExplorer.jsx").then((module) => ({
+    default: module.RoutingDecisionExplorer,
+  })),
 );
 
 const RiskAnalytics = lazy(() =>
-  import("../features/risk/RiskAnalytics.jsx").then(
-    (module) => ({
-      default: module.RiskAnalytics,
-    })
-  )
+  import("../features/risk/RiskAnalytics.jsx").then((module) => ({
+    default: module.RiskAnalytics,
+  })),
 );
 
 const RiskRules = lazy(() =>
-  import("../features/risk/RiskRules.jsx").then(
-    (module) => ({
-      default: module.RiskRules,
-    })
-  )
+  import("../features/risk/RiskRules.jsx").then((module) => ({
+    default: module.RiskRules,
+  })),
 );
 
 const TransactionReview = lazy(() =>
-  import("../features/risk/TransactionReview.jsx").then(
-    (module) => ({
-      default: module.TransactionReview,
-    })
-  )
+  import("../features/risk/TransactionReview.jsx").then((module) => ({
+    default: module.TransactionReview,
+  })),
 );
 
 const AgentPay = lazy(() =>
-  import("../features/agentpay/AgentPay.jsx").then(
-    (module) => ({
-      default: module.AgentPay,
-    })
-  )
+  import("../features/agentpay/AgentPay.jsx").then((module) => ({
+    default: module.AgentPay,
+  })),
 );
 
 const ChaosLab = lazy(() =>
-  import("../features/chaos/ChaosLab.jsx").then(
-    (module) => ({
-      default: module.ChaosLab,
-    })
-  )
+  import("../features/chaos/ChaosLab.jsx").then((module) => ({
+    default: module.ChaosLab,
+  })),
 );
 
 const TransactionTimeMachine = lazy(() =>
   import("../features/time-machine/TransactionTimeMachine.jsx").then(
     (module) => ({
       default: module.TransactionTimeMachine,
-    })
-  )
+    }),
+  ),
 );
 
 const ROUTES = {
@@ -223,9 +173,7 @@ function RouteBoundary({ children }) {
 
   return (
     <ErrorBoundary resetKey={location.pathname}>
-      <Suspense fallback={<PageLoader />}>
-        {children}
-      </Suspense>
+      <Suspense fallback={<PageLoader />}>{children}</Suspense>
     </ErrorBoundary>
   );
 }
@@ -238,12 +186,7 @@ function PublicOnlyRoute({ children }) {
   }
 
   if (auth) {
-    return (
-      <Navigate
-        to={ROUTES.overview}
-        replace
-      />
-    );
+    return <Navigate to={ROUTES.overview} replace />;
   }
 
   return children;
@@ -287,12 +230,7 @@ export default function App() {
 
           <Route
             path="overview"
-            element={
-              <Navigate
-                to={ROUTES.overview}
-                replace
-              />
-            }
+            element={<Navigate to={ROUTES.overview} replace />}
           />
 
           <Route

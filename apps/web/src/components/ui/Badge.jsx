@@ -1,4 +1,3 @@
-
 import { cn } from "../../lib/utils.js";
 
 const badgeVariants = {
@@ -38,12 +37,7 @@ const badgeVariants = {
   ],
 };
 
-export function Badge({
-  className,
-  variant = "default",
-  children,
-  ...props
-}) {
+export function Badge({ className, variant = "default", children, ...props }) {
   const resolvedVariant = Object.hasOwn(badgeVariants, variant)
     ? variant
     : "default";

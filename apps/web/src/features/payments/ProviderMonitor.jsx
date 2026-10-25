@@ -1,10 +1,21 @@
-
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { RefreshCw, Server, CheckCircle2, XCircle, AlertTriangle, Clock3 } from "lucide-react";
+import {
+  RefreshCw,
+  Server,
+  CheckCircle2,
+  XCircle,
+  AlertTriangle,
+  Clock3,
+} from "lucide-react";
 import { useAuth } from "../../app/AuthContext.jsx";
 import { apiClient } from "../../lib/apiClient.js";
-import { Card, CardHeader, CardTitle, CardContent } from "../../components/ui/Card.jsx";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardContent,
+} from "../../components/ui/Card.jsx";
 import { Badge } from "../../components/ui/Badge.jsx";
 import { Button } from "../../components/ui/Button.jsx";
 
@@ -38,7 +49,10 @@ function Metric({ label, value, icon: Icon }) {
           <p className="text-xs text-slate-500 dark:text-slate-400">{label}</p>
           <p className="mt-2 text-2xl font-bold">{value}</p>
         </div>
-        <Icon className="h-5 w-5 text-blue-600 dark:text-blue-400" aria-hidden="true" />
+        <Icon
+          className="h-5 w-5 text-blue-600 dark:text-blue-400"
+          aria-hidden="true"
+        />
       </CardContent>
     </Card>
   );
@@ -51,7 +65,8 @@ export function ProviderMonitor() {
 
   const operations = useQuery({
     queryKey: ["provider-operations", merchantId],
-    queryFn: () => apiClient.get("/api/v1/sandbox/provider-operations?limit=50"),
+    queryFn: () =>
+      apiClient.get("/api/v1/sandbox/provider-operations?limit=50"),
     enabled,
     refetchInterval: 15000,
   });
@@ -72,9 +87,17 @@ export function ProviderMonitor() {
 
   const metrics = [
     ["Recent Operations", ops.length, Server],
-    ["Successful", ops.filter((op) => op.status === "SUCCEEDED").length, CheckCircle2],
+    [
+      "Successful",
+      ops.filter((op) => op.status === "SUCCEEDED").length,
+      CheckCircle2,
+    ],
     ["Failed", ops.filter((op) => op.status === "DECLINED").length, XCircle],
-    ["Unknown", ops.filter((op) => op.status === "UNKNOWN_TO_CLIENT").length, AlertTriangle],
+    [
+      "Unknown",
+      ops.filter((op) => op.status === "UNKNOWN_TO_CLIENT").length,
+      AlertTriangle,
+    ],
     ["Average Latency", averageLatency, Clock3],
   ];
 
@@ -98,7 +121,11 @@ export function ProviderMonitor() {
             Monitor simulated provider operations and routing availability.
           </p>
         </div>
-        <Button variant="outline" disabled={!enabled || fetching} onClick={refresh}>
+        <Button
+          variant="outline"
+          disabled={!enabled || fetching}
+          onClick={refresh}
+        >
           <RefreshCw className={`h-4 w-4 ${fetching ? "animate-spin" : ""}`} />
           Refresh
         </Button>
@@ -108,7 +135,10 @@ export function ProviderMonitor() {
         <Card>
           <CardContent className="py-8 text-center text-sm">
             <p>Sign in to view provider activity.</p>
-            <Link to="/login" className="mt-2 inline-block font-medium text-blue-600">
+            <Link
+              to="/login"
+              className="mt-2 inline-block font-medium text-blue-600"
+            >
               Sign in
             </Link>
           </CardContent>
@@ -116,11 +146,17 @@ export function ProviderMonitor() {
       ) : loading ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
           {metrics.map(([label]) => (
-            <div key={label} className="h-28 animate-pulse rounded-xl bg-slate-200 dark:bg-slate-800" />
+            <div
+              key={label}
+              className="h-28 animate-pulse rounded-xl bg-slate-200 dark:bg-slate-800"
+            />
           ))}
         </div>
       ) : error ? (
-        <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
+        <div
+          role="alert"
+          className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300"
+        >
           {error.message || "Unable to load provider data."}
         </div>
       ) : (
@@ -137,21 +173,32 @@ export function ProviderMonitor() {
                 <CardTitle>Configured Providers</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
-                {providers.length ? providers.map((provider) => (
-                  <div
-                    key={provider.providerId}
-                    className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 p-3 dark:border-slate-800"
-                  >
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold">{provider.providerName ?? provider.providerId}</p>
-                      <p className="truncate font-mono text-xs text-slate-500">{provider.providerId}</p>
+                {providers.length ? (
+                  providers.map((provider) => (
+                    <div
+                      key={provider.providerId}
+                      className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 p-3 dark:border-slate-800"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold">
+                          {provider.providerName ?? provider.providerId}
+                        </p>
+                        <p className="truncate font-mono text-xs text-slate-500">
+                          {provider.providerId}
+                        </p>
+                      </div>
+                      <Badge
+                        variant={provider.enabled ? "success" : "secondary"}
+                      >
+                        {provider.status ??
+                          (provider.enabled ? "Enabled" : "Disabled")}
+                      </Badge>
                     </div>
-                    <Badge variant={provider.enabled ? "success" : "secondary"}>
-                      {provider.status ?? (provider.enabled ? "Enabled" : "Disabled")}
-                    </Badge>
-                  </div>
-                )) : (
-                  <p className="py-6 text-center text-sm text-slate-500">No providers configured.</p>
+                  ))
+                ) : (
+                  <p className="py-6 text-center text-sm text-slate-500">
+                    No providers configured.
+                  </p>
                 )}
               </CardContent>
             </Card>
@@ -162,25 +209,33 @@ export function ProviderMonitor() {
               </CardHeader>
               <CardContent>
                 <div className="max-h-96 space-y-3 overflow-y-auto">
-                  {ops.length ? ops.slice(0, 20).map((op) => (
-                    <div
-                      key={op.operationId}
-                      className="flex items-center justify-between gap-3 rounded-lg bg-slate-50 p-3 dark:bg-slate-900"
-                    >
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium">{op.type ?? "Operation"}</p>
-                        <p className="truncate font-mono text-xs text-slate-500">{op.operationId}</p>
+                  {ops.length ? (
+                    ops.slice(0, 20).map((op) => (
+                      <div
+                        key={op.operationId}
+                        className="flex items-center justify-between gap-3 rounded-lg bg-slate-50 p-3 dark:bg-slate-900"
+                      >
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium">
+                            {op.type ?? "Operation"}
+                          </p>
+                          <p className="truncate font-mono text-xs text-slate-500">
+                            {op.operationId}
+                          </p>
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <Badge
+                            variant={statusVariants[op.status] ?? "secondary"}
+                          >
+                            {op.status ?? "UNKNOWN"}
+                          </Badge>
+                          <p className="mt-1 text-xs text-slate-500">
+                            {latency(op) !== null ? `${latency(op)} ms` : "—"}
+                          </p>
+                        </div>
                       </div>
-                      <div className="shrink-0 text-right">
-                        <Badge variant={statusVariants[op.status] ?? "secondary"}>
-                          {op.status ?? "UNKNOWN"}
-                        </Badge>
-                        <p className="mt-1 text-xs text-slate-500">
-                          {latency(op) !== null ? `${latency(op)} ms` : "—"}
-                        </p>
-                      </div>
-                    </div>
-                  )) : (
+                    ))
+                  ) : (
                     <p className="py-6 text-center text-sm text-slate-500">
                       No provider operations recorded.
                     </p>

@@ -1,4 +1,3 @@
-
 "use client";
 
 import {
@@ -77,8 +76,7 @@ function ToastItem({ toast, onDismiss }) {
     if (startedAtRef.current !== null) {
       remainingRef.current = Math.max(
         0,
-        remainingRef.current -
-          (Date.now() - startedAtRef.current),
+        remainingRef.current - (Date.now() - startedAtRef.current),
       );
       startedAtRef.current = null;
     }
@@ -121,16 +119,10 @@ function ToastItem({ toast, onDismiss }) {
       }
     };
 
-    document.addEventListener(
-      "visibilitychange",
-      handleVisibilityChange,
-    );
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
-      document.removeEventListener(
-        "visibilitychange",
-        handleVisibilityChange,
-      );
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [pauseTimer, resumeTimer]);
 
@@ -160,10 +152,7 @@ function ToastItem({ toast, onDismiss }) {
       )}
     >
       <Icon
-        className={cn(
-          "mt-0.5 h-5 w-5 shrink-0",
-          config.iconClasses,
-        )}
+        className={cn("mt-0.5 h-5 w-5 shrink-0", config.iconClasses)}
         aria-hidden="true"
       />
 
@@ -219,8 +208,7 @@ export function ToastProvider({
       duration = DEFAULT_DURATION,
     } = {}) => {
       const id =
-        typeof crypto !== "undefined" &&
-        typeof crypto.randomUUID === "function"
+        typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
           ? crypto.randomUUID()
           : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
@@ -230,8 +218,7 @@ export function ToastProvider({
         description,
         variant: variantConfig[variant] ? variant : "info",
         duration:
-          typeof duration === "number" &&
-          Number.isFinite(duration)
+          typeof duration === "number" && Number.isFinite(duration)
             ? Math.max(0, duration)
             : DEFAULT_DURATION,
       };
@@ -250,9 +237,7 @@ export function ToastProvider({
   );
 
   const removeToast = useCallback((id) => {
-    setToasts((previous) =>
-      previous.filter((toast) => toast.id !== id),
-    );
+    setToasts((previous) => previous.filter((toast) => toast.id !== id));
   }, []);
 
   const dismissToast = removeToast;
@@ -292,16 +277,11 @@ export function ToastProvider({
           "flex w-[calc(100%-2rem)] max-w-sm flex-col gap-3",
           "max-h-[calc(100dvh-2rem)] overflow-y-auto",
           "overscroll-contain",
-          positionClasses[position] ??
-            positionClasses["top-right"],
+          positionClasses[position] ?? positionClasses["top-right"],
         )}
       >
         {toasts.map((toast) => (
-          <ToastItem
-            key={toast.id}
-            toast={toast}
-            onDismiss={dismissToast}
-          />
+          <ToastItem key={toast.id} toast={toast} onDismiss={dismissToast} />
         ))}
       </div>
     </ToastContext.Provider>

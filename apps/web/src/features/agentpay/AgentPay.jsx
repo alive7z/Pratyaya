@@ -1,4 +1,3 @@
-
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -16,7 +15,12 @@ import { useAuth } from "../../app/AuthContext.jsx";
 import { apiClient } from "../../lib/apiClient.js";
 import { formatMoney } from "../../lib/format.js";
 import { AuthGate } from "../../components/AuthGate.jsx";
-import { Card, CardHeader, CardTitle, CardContent } from "../../components/ui/Card.jsx";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardContent,
+} from "../../components/ui/Card.jsx";
 import { Button } from "../../components/ui/Button.jsx";
 import { Input } from "../../components/ui/Input.jsx";
 import { Badge } from "../../components/ui/Badge.jsx";
@@ -79,7 +83,9 @@ function Field({ label, children }) {
   return (
     <div>
       <p className="text-xs text-slate-500 dark:text-slate-400">{label}</p>
-      <div className="mt-1 wrap-break-word text-sm font-medium">{children ?? "—"}</div>
+      <div className="mt-1 wrap-break-word text-sm font-medium">
+        {children ?? "—"}
+      </div>
     </div>
   );
 }
@@ -114,8 +120,12 @@ export function AgentPay() {
 
   const refresh = async () => {
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["agentpay-invoices", merchantId] }),
-      queryClient.invalidateQueries({ queryKey: ["agentpay-policy", merchantId] }),
+      queryClient.invalidateQueries({
+        queryKey: ["agentpay-invoices", merchantId],
+      }),
+      queryClient.invalidateQueries({
+        queryKey: ["agentpay-policy", merchantId],
+      }),
     ]);
   };
 
@@ -138,13 +148,15 @@ export function AgentPay() {
     },
     onSuccess: async (_, variables) => {
       setError("");
-      setSuccess({
-        submit: "Invoice submitted successfully.",
-        policy: "Policy saved successfully.",
-        approve: "Invoice approved successfully.",
-        reject: "Invoice rejected successfully.",
-        execute: "Payment execution request completed.",
-      }[variables.action]);
+      setSuccess(
+        {
+          submit: "Invoice submitted successfully.",
+          policy: "Policy saved successfully.",
+          approve: "Invoice approved successfully.",
+          reject: "Invoice rejected successfully.",
+          execute: "Payment execution request completed.",
+        }[variables.action],
+      );
 
       if (variables.action !== "submit") setSelectedProposal(null);
 
@@ -278,13 +290,19 @@ export function AgentPay() {
       </header>
 
       {error && (
-        <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
+        <div
+          role="alert"
+          className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300"
+        >
           {error}
         </div>
       )}
 
       {success && (
-        <div role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300">
+        <div
+          role="status"
+          className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300"
+        >
           {success}
         </div>
       )}
@@ -296,17 +314,36 @@ export function AgentPay() {
           </CardHeader>
           <CardContent>
             {policyQuery.isPending ? (
-              <p className="py-8 text-center text-sm text-slate-500">Loading policy...</p>
+              <p className="py-8 text-center text-sm text-slate-500">
+                Loading policy...
+              </p>
             ) : policyQuery.isError ? (
-              <p role="alert" className="text-sm text-red-600">{policyQuery.error.message}</p>
+              <p role="alert" className="text-sm text-red-600">
+                {policyQuery.error.message}
+              </p>
             ) : (
-              <form key={JSON.stringify(policy)} onSubmit={savePolicy} className="space-y-5">
+              <form
+                key={JSON.stringify(policy)}
+                onSubmit={savePolicy}
+                className="space-y-5"
+              >
                 <div className="grid gap-4 sm:grid-cols-2">
                   {[
-                    ["isEnabled", "Enable AgentPay", policy?.isEnabled ?? false],
-                    ["requireHumanApproval", "Require Human Approval", policy?.requireHumanApproval ?? true],
+                    [
+                      "isEnabled",
+                      "Enable AgentPay",
+                      policy?.isEnabled ?? false,
+                    ],
+                    [
+                      "requireHumanApproval",
+                      "Require Human Approval",
+                      policy?.requireHumanApproval ?? true,
+                    ],
                   ].map(([name, label, checked]) => (
-                    <label key={name} className="flex items-center gap-3 rounded-lg border border-slate-200 p-3 text-sm dark:border-slate-800">
+                    <label
+                      key={name}
+                      className="flex items-center gap-3 rounded-lg border border-slate-200 p-3 text-sm dark:border-slate-800"
+                    >
                       <input
                         type="checkbox"
                         name={name}
@@ -320,7 +357,10 @@ export function AgentPay() {
 
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
-                    <label htmlFor="invoice-age" className="text-sm font-medium">
+                    <label
+                      htmlFor="invoice-age"
+                      className="text-sm font-medium"
+                    >
                       Max Invoice Age (days)
                     </label>
                     <Input
@@ -343,9 +383,15 @@ export function AgentPay() {
                     id="suppliers"
                     name="approvedSuppliers"
                     placeholder="Acme Corp, Global Supplier"
-                    defaultValue={policy?.approvedSuppliers?.map((s) => s.name).join(", ") ?? ""}
+                    defaultValue={
+                      policy?.approvedSuppliers
+                        ?.map((s) => s.name)
+                        .join(", ") ?? ""
+                    }
                   />
-                  <p className="text-xs text-slate-500">Separate supplier names with commas.</p>
+                  <p className="text-xs text-slate-500">
+                    Separate supplier names with commas.
+                  </p>
                 </div>
 
                 <div className="grid gap-4 sm:grid-cols-2">
@@ -363,8 +409,9 @@ export function AgentPay() {
                         inputMode="numeric"
                         required
                         defaultValue={String(
-                          policy?.spendingLimits?.find((item) => item.currency === currency)
-                            ?.maxAmountMinor ?? fallback,
+                          policy?.spendingLimits?.find(
+                            (item) => item.currency === currency,
+                          )?.maxAmountMinor ?? fallback,
                         )}
                       />
                     </div>
@@ -408,7 +455,9 @@ export function AgentPay() {
                     name="invoiceText"
                     rows={10}
                     required
-                    placeholder={"Supplier: Acme Corporation\nInvoice #: INV-2026-001\nAmount: 1250.00 USD\nDate: 2026-10-24\nPayment Purpose: Office equipment"}
+                    placeholder={
+                      "Supplier: Acme Corporation\nInvoice #: INV-2026-001\nAmount: 1250.00 USD\nDate: 2026-10-24\nPayment Purpose: Office equipment"
+                    }
                     className="w-full resize-y rounded-lg border border-slate-200 bg-white p-3 font-mono text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-slate-800 dark:bg-slate-950"
                   />
                 </div>
@@ -422,15 +471,29 @@ export function AgentPay() {
 
           <div className="grid gap-4 sm:grid-cols-3">
             {[
-              [Bot, "Invoice Extraction", "Extract supplier, currency, amount, and invoice information."],
-              [Shield, "Policy Validation", "Evaluate configured limits and supplier restrictions."],
-              [CheckCircle2, "Human Approval", "Review and authorize payments before execution when required."],
+              [
+                Bot,
+                "Invoice Extraction",
+                "Extract supplier, currency, amount, and invoice information.",
+              ],
+              [
+                Shield,
+                "Policy Validation",
+                "Evaluate configured limits and supplier restrictions.",
+              ],
+              [
+                CheckCircle2,
+                "Human Approval",
+                "Review and authorize payments before execution when required.",
+              ],
             ].map(([Icon, title, description]) => (
               <Card key={title}>
                 <CardContent className="space-y-2 pt-5">
                   <Icon className="h-5 w-5 text-blue-600" />
                   <p className="text-sm font-semibold">{title}</p>
-                  <p className="text-xs leading-relaxed text-slate-500">{description}</p>
+                  <p className="text-xs leading-relaxed text-slate-500">
+                    {description}
+                  </p>
                 </CardContent>
               </Card>
             ))}
@@ -441,15 +504,28 @@ export function AgentPay() {
       {view === "dashboard" && (
         <>
           <div className="grid gap-4 sm:grid-cols-3">
-            <Stat title="Total Proposals" value={proposalsQuery.isPending ? "—" : proposals.length} icon={FileText} />
+            <Stat
+              title="Total Proposals"
+              value={proposalsQuery.isPending ? "—" : proposals.length}
+              icon={FileText}
+            />
             <Stat
               title="Pending Approval"
-              value={proposalsQuery.isPending ? "—" : proposals.filter((p) => p.status === "AWAITING_APPROVAL").length}
+              value={
+                proposalsQuery.isPending
+                  ? "—"
+                  : proposals.filter((p) => p.status === "AWAITING_APPROVAL")
+                      .length
+              }
               icon={Inbox}
             />
             <Stat
               title="Executed"
-              value={proposalsQuery.isPending ? "—" : proposals.filter((p) => p.status === "EXECUTED").length}
+              value={
+                proposalsQuery.isPending
+                  ? "—"
+                  : proposals.filter((p) => p.status === "EXECUTED").length
+              }
               icon={CheckCircle2}
             />
           </div>
@@ -463,20 +539,29 @@ export function AgentPay() {
                 disabled={proposalsQuery.isFetching}
                 onClick={() => proposalsQuery.refetch()}
               >
-                <RefreshCw className={`h-4 w-4 ${proposalsQuery.isFetching ? "animate-spin" : ""}`} />
+                <RefreshCw
+                  className={`h-4 w-4 ${proposalsQuery.isFetching ? "animate-spin" : ""}`}
+                />
               </Button>
             </CardHeader>
             <CardContent>
               {proposalsQuery.isPending ? (
-                <p className="py-10 text-center text-sm text-slate-500">Loading invoices...</p>
+                <p className="py-10 text-center text-sm text-slate-500">
+                  Loading invoices...
+                </p>
               ) : proposalsQuery.isError ? (
-                <p role="alert" className="py-6 text-center text-sm text-red-600">
+                <p
+                  role="alert"
+                  className="py-6 text-center text-sm text-red-600"
+                >
                   {proposalsQuery.error.message}
                 </p>
               ) : proposals.length === 0 ? (
                 <div className="py-12 text-center">
                   <FileText className="mx-auto h-9 w-9 text-slate-400" />
-                  <p className="mt-3 text-sm font-medium">No invoice proposals yet</p>
+                  <p className="mt-3 text-sm font-medium">
+                    No invoice proposals yet
+                  </p>
                   <Button className="mt-4" onClick={() => changeView("submit")}>
                     <Plus className="h-4 w-4" />
                     Submit Invoice
@@ -487,8 +572,18 @@ export function AgentPay() {
                   <table className="w-full text-left text-sm">
                     <thead className="border-b border-slate-200 text-xs text-slate-500 dark:border-slate-800">
                       <tr>
-                        {["Invoice ID", "Supplier", "Amount", "Status", "Created", "Action"].map((heading) => (
-                          <th key={heading} className="whitespace-nowrap px-3 py-3 font-medium">
+                        {[
+                          "Invoice ID",
+                          "Supplier",
+                          "Amount",
+                          "Status",
+                          "Created",
+                          "Action",
+                        ].map((heading) => (
+                          <th
+                            key={heading}
+                            className="whitespace-nowrap px-3 py-3 font-medium"
+                          >
                             {heading}
                           </th>
                         ))}
@@ -496,15 +591,30 @@ export function AgentPay() {
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                       {proposals.map((proposal) => (
-                        <tr key={proposal.id} className="hover:bg-slate-50 dark:hover:bg-slate-900">
-                          <td className="px-3 py-3 font-mono text-xs">{proposal.invoiceId}</td>
-                          <td className="px-3 py-3">{proposal.extractedData?.supplierName ?? "—"}</td>
-                          <td className="whitespace-nowrap px-3 py-3">
-                            {money(proposal.extractedData?.amountMinor, proposal.extractedData?.currency)}
+                        <tr
+                          key={proposal.id}
+                          className="hover:bg-slate-50 dark:hover:bg-slate-900"
+                        >
+                          <td className="px-3 py-3 font-mono text-xs">
+                            {proposal.invoiceId}
                           </td>
                           <td className="px-3 py-3">
-                            <Badge variant={STATUS_BADGE[proposal.status] ?? "secondary"}>
-                              {proposal.status?.replaceAll("_", " ") ?? "Unknown"}
+                            {proposal.extractedData?.supplierName ?? "—"}
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-3">
+                            {money(
+                              proposal.extractedData?.amountMinor,
+                              proposal.extractedData?.currency,
+                            )}
+                          </td>
+                          <td className="px-3 py-3">
+                            <Badge
+                              variant={
+                                STATUS_BADGE[proposal.status] ?? "secondary"
+                              }
+                            >
+                              {proposal.status?.replaceAll("_", " ") ??
+                                "Unknown"}
                             </Badge>
                           </td>
                           <td className="whitespace-nowrap px-3 py-3 text-xs text-slate-500">
@@ -536,7 +646,9 @@ export function AgentPay() {
 
       <Dialog
         open={Boolean(selectedProposal)}
-        onOpenChange={(open) => !open && !mutation.isPending && setSelectedProposal(null)}
+        onOpenChange={(open) =>
+          !open && !mutation.isPending && setSelectedProposal(null)
+        }
       >
         <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
           <DialogHeader>
@@ -547,20 +659,30 @@ export function AgentPay() {
           {selectedProposal && (
             <div className="space-y-5">
               <div className="grid gap-4 rounded-lg bg-slate-50 p-4 dark:bg-slate-900 sm:grid-cols-2">
-                <Field label="Supplier">{selectedProposal.extractedData?.supplierName}</Field>
+                <Field label="Supplier">
+                  {selectedProposal.extractedData?.supplierName}
+                </Field>
                 <Field label="Amount">
                   {money(
                     selectedProposal.extractedData?.amountMinor,
                     selectedProposal.extractedData?.currency,
                   )}
                 </Field>
-                <Field label="Invoice Number">{selectedProposal.extractedData?.invoiceNumber}</Field>
+                <Field label="Invoice Number">
+                  {selectedProposal.extractedData?.invoiceNumber}
+                </Field>
                 <Field label="Status">
-                  <Badge variant={STATUS_BADGE[selectedProposal.status] ?? "secondary"}>
+                  <Badge
+                    variant={
+                      STATUS_BADGE[selectedProposal.status] ?? "secondary"
+                    }
+                  >
                     {selectedProposal.status?.replaceAll("_", " ")}
                   </Badge>
                 </Field>
-                <Field label="Payment Purpose">{selectedProposal.extractedData?.paymentPurpose}</Field>
+                <Field label="Payment Purpose">
+                  {selectedProposal.extractedData?.paymentPurpose}
+                </Field>
                 <Field label="Confidence">
                   {selectedProposal.confidence != null
                     ? `${selectedProposal.confidence}%`
@@ -569,13 +691,16 @@ export function AgentPay() {
               </div>
 
               {error && (
-                <p role="alert" className="text-sm text-red-600">{error}</p>
+                <p role="alert" className="text-sm text-red-600">
+                  {error}
+                </p>
               )}
 
               {selectedProposal.status === "AWAITING_APPROVAL" && (
                 <div className="space-y-3 border-t border-slate-200 pt-4 dark:border-slate-800">
                   <p className="text-sm text-slate-500">
-                    Review the extracted invoice information before authorizing payment.
+                    Review the extracted invoice information before authorizing
+                    payment.
                   </p>
                   <div className="flex flex-wrap gap-3">
                     <Button
@@ -626,7 +751,9 @@ export function AgentPay() {
 
               {selectedProposal.approval && (
                 <div className="border-t border-slate-200 pt-4 dark:border-slate-800">
-                  <h3 className="mb-3 text-sm font-semibold">Approval History</h3>
+                  <h3 className="mb-3 text-sm font-semibold">
+                    Approval History
+                  </h3>
                   <div className="grid gap-3 sm:grid-cols-2">
                     {selectedProposal.approval.approvedAt && (
                       <Field label="Approved">

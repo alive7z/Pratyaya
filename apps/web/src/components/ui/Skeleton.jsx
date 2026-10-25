@@ -1,24 +1,21 @@
-
 import * as React from "react";
 import { cn } from "../../lib/utils.js";
 
-const Skeleton = React.forwardRef(
-  ({ className, ...props }, ref) => (
-    <span
-      ref={ref}
-      data-slot="skeleton"
-      aria-hidden="true"
-      className={cn(
-        "block h-4 w-full rounded-md",
-        "bg-slate-200 dark:bg-slate-800",
-        "animate-pulse",
-        "motion-reduce:animate-none",
-        className,
-      )}
-      {...props}
-    />
-  ),
-);
+const Skeleton = React.forwardRef(({ className, ...props }, ref) => (
+  <span
+    ref={ref}
+    data-slot="skeleton"
+    aria-hidden="true"
+    className={cn(
+      "block h-4 w-full rounded-md",
+      "bg-slate-200 dark:bg-slate-800",
+      "animate-pulse",
+      "motion-reduce:animate-none",
+      className,
+    )}
+    {...props}
+  />
+));
 
 Skeleton.displayName = "Skeleton";
 
@@ -27,10 +24,7 @@ const SkeletonCircle = React.forwardRef(
     <Skeleton
       ref={ref}
       data-slot="skeleton-circle"
-      className={cn(
-        "inline-block h-8 w-8 shrink-0 rounded-full",
-        className,
-      )}
+      className={cn("inline-block h-8 w-8 shrink-0 rounded-full", className)}
       style={{
         width: size,
         height: size,
@@ -56,21 +50,14 @@ export function SkeletonText({
     <div
       data-slot="skeleton-text"
       aria-hidden="true"
-      className={cn(
-        "flex w-full flex-col gap-3",
-        className,
-      )}
+      className={cn("flex w-full flex-col gap-3", className)}
       {...props}
     >
       {Array.from({ length: count }, (_, index) => (
         <Skeleton
           key={index}
           className={cn("h-3.5", lineClassName)}
-          style={
-            index === count - 1
-              ? { width: lastLineWidth }
-              : undefined
-          }
+          style={index === count - 1 ? { width: lastLineWidth } : undefined}
         />
       ))}
     </div>
@@ -83,10 +70,7 @@ export function SkeletonTableRow({
   cellClassName,
   ...props
 }) {
-  const count = Math.max(
-    0,
-    Math.min(100, Math.floor(Number(columns) || 0)),
-  );
+  const count = Math.max(0, Math.min(100, Math.floor(Number(columns) || 0)));
 
   return (
     <tr
@@ -100,16 +84,8 @@ export function SkeletonTableRow({
       {...props}
     >
       {Array.from({ length: count }, (_, index) => (
-        <td
-          key={index}
-          className={cn("px-4 py-4", cellClassName)}
-        >
-          <Skeleton
-            className={cn(
-              "h-4",
-              index === 0 ? "w-3/4" : "w-full",
-            )}
-          />
+        <td key={index} className={cn("px-4 py-4", cellClassName)}>
+          <Skeleton className={cn("h-4", index === 0 ? "w-3/4" : "w-full")} />
         </td>
       ))}
     </tr>
@@ -149,11 +125,7 @@ export function SkeletonCard({ className, ...props }) {
   );
 }
 
-export function SkeletonAvatar({
-  className,
-  size = 40,
-  ...props
-}) {
+export function SkeletonAvatar({ className, size = 40, ...props }) {
   return (
     <SkeletonCircle
       data-slot="skeleton-avatar"
@@ -164,7 +136,4 @@ export function SkeletonAvatar({
   );
 }
 
-export {
-  Skeleton,
-  SkeletonCircle,
-};
+export { Skeleton, SkeletonCircle };

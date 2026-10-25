@@ -1,4 +1,3 @@
-
 import mongoose from "mongoose";
 import { OUTBOX_EVENT_TYPES, OUTBOX_STATE } from "@pratyaya/shared";
 
@@ -113,8 +112,7 @@ outboxEventSchema.index(
     leaseUntil: 1,
     _id: 1,
   },
-  {
-  },
+  {},
 );
 
 outboxEventSchema.index(
@@ -123,8 +121,7 @@ outboxEventSchema.index(
     aggregateId: 1,
     createdAt: 1,
   },
-  {
-  },
+  {},
 );
 
 outboxEventSchema.index(

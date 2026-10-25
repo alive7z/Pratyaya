@@ -1,4 +1,3 @@
-
 import { ArrowRight, RefreshCw, Server, WifiOff } from "lucide-react";
 import { Link } from "react-router-dom";
 import StatusBadge from "../../components/StatusBadge.jsx";
@@ -59,9 +58,7 @@ export default function HealthSnapshot({ health }) {
           </p>
         </div>
 
-        <StatusBadge tone={status.tone}>
-          {status.label}
-        </StatusBadge>
+        <StatusBadge tone={status.tone}>{status.label}</StatusBadge>
       </div>
 
       {isOffline ? (
@@ -90,9 +87,7 @@ export default function HealthSnapshot({ health }) {
               className="mt-3 inline-flex items-center gap-2 rounded-lg border border-red-200 bg-white px-3 py-2 text-xs font-medium text-red-700 transition-colors hover:bg-red-50 disabled:opacity-50 dark:border-red-900 dark:bg-slate-950 dark:text-red-300"
             >
               <RefreshCw
-                className={`h-3.5 w-3.5 ${
-                  isLoading ? "animate-spin" : ""
-                }`}
+                className={`h-3.5 w-3.5 ${isLoading ? "animate-spin" : ""}`}
                 aria-hidden="true"
               />
               Retry Connection
@@ -145,9 +140,7 @@ export default function HealthSnapshot({ health }) {
                 MongoDB
               </span>
 
-              <StatusBadge tone={databaseStatus}>
-                {databaseLabel}
-              </StatusBadge>
+              <StatusBadge tone={databaseStatus}>{databaseLabel}</StatusBadge>
             </div>
           </div>
         </div>

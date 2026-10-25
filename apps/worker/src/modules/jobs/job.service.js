@@ -1,4 +1,3 @@
-
 import { createHash, randomUUID } from "node:crypto";
 import {
   JOB_TYPES,
@@ -24,19 +23,14 @@ function generateLeaseToken() {
 }
 
 function calculateBackoff(attemptCount) {
-  const delay = Math.min(
-    1_000 * 2 ** Math.max(0, attemptCount - 1),
-    60_000,
-  );
+  const delay = Math.min(1_000 * 2 ** Math.max(0, attemptCount - 1), 60_000);
 
   return delay + Math.floor(Math.random() * 500);
 }
 
 function getErrorMessage(error) {
   const message =
-    typeof error === "string"
-      ? error
-      : error?.message ?? "Unknown error";
+    typeof error === "string" ? error : (error?.message ?? "Unknown error");
 
   return String(message).slice(0, 500);
 }
@@ -83,24 +77,19 @@ function availableLeaseFilter(date) {
 
 function mapOutboxEventToJobType(eventType) {
   const mapping = {
-
-    [OUTBOX_EVENT_TYPES.PAYMENT_CREATED]:
-      JOB_TYPES.PROCESS_PAYMENT_CREATED,
+    [OUTBOX_EVENT_TYPES.PAYMENT_CREATED]: JOB_TYPES.PROCESS_PAYMENT_CREATED,
 
     [OUTBOX_EVENT_TYPES.PAYMENT_AUTHORIZE_REQUESTED]:
       JOB_TYPES.PROCESS_AUTHORIZATION,
 
-    [OUTBOX_EVENT_TYPES.PAYMENT_CAPTURE_REQUESTED]:
-      JOB_TYPES.PROCESS_CAPTURE,
+    [OUTBOX_EVENT_TYPES.PAYMENT_CAPTURE_REQUESTED]: JOB_TYPES.PROCESS_CAPTURE,
 
-    [OUTBOX_EVENT_TYPES.PAYMENT_REFUND_REQUESTED]:
-      JOB_TYPES.PROCESS_REFUND,
+    [OUTBOX_EVENT_TYPES.PAYMENT_REFUND_REQUESTED]: JOB_TYPES.PROCESS_REFUND,
 
     [OUTBOX_EVENT_TYPES.PAYMENT_RECONCILIATION_REQUESTED]:
       JOB_TYPES.RECONCILE_PAYMENT,
 
-    [OUTBOX_EVENT_TYPES.LEDGER_JOURNAL_POSTED]:
-      JOB_TYPES.DISPATCH_WEBHOOK,
+    [OUTBOX_EVENT_TYPES.LEDGER_JOURNAL_POSTED]: JOB_TYPES.DISPATCH_WEBHOOK,
   };
 
   return mapping[eventType] ?? null;
@@ -147,11 +136,7 @@ export async function createJob({
   const jobId = idempotencyKey
     ? `job_${createHash("sha256")
         .update(
-          JSON.stringify([
-            String(merchantId),
-            type,
-            String(idempotencyKey),
-          ]),
+          JSON.stringify([String(merchantId), type, String(idempotencyKey)]),
         )
         .digest("hex")
         .slice(0, 24)}`
@@ -244,9 +229,7 @@ export async function claimJobs({
           status: JOB_STATUS.PROCESSING,
           leaseOwner: workerId,
           leaseToken,
-          leaseUntil: new Date(
-            claimedAt.getTime() + leaseDurationMs,
-          ),
+          leaseUntil: new Date(claimedAt.getTime() + leaseDurationMs),
           lastAttemptAt: claimedAt,
         },
         $inc: {
@@ -325,18 +308,13 @@ export async function releaseJob({
     };
   } else {
     const exhausted =
-      job.attemptCount >=
-      (job.maxAttempts ?? DEFAULT_MAX_ATTEMPTS);
+      job.attemptCount >= (job.maxAttempts ?? DEFAULT_MAX_ATTEMPTS);
 
     update.$set = {
-      status: exhausted
-        ? JOB_STATUS.DEAD_LETTER
-        : JOB_STATUS.RETRY,
+      status: exhausted ? JOB_STATUS.DEAD_LETTER : JOB_STATUS.RETRY,
       nextAttemptAt: exhausted
         ? null
-        : new Date(
-            Date.now() + calculateBackoff(job.attemptCount),
-          ),
+        : new Date(Date.now() + calculateBackoff(job.attemptCount)),
       lastError: getErrorMessage(error),
     };
 
@@ -393,9 +371,7 @@ export async function renewJobLease({
     },
     {
       $set: {
-        leaseUntil: new Date(
-          renewedAt.getTime() + leaseDurationMs,
-        ),
+        leaseUntil: new Date(renewedAt.getTime() + leaseDurationMs),
       },
       $inc: { version: 1 },
     },
@@ -436,8 +412,7 @@ export async function recoverStaleJobs({
     if (!staleJob) break;
 
     const exhausted =
-      staleJob.attemptCount >=
-      (staleJob.maxAttempts ?? DEFAULT_MAX_ATTEMPTS);
+      staleJob.attemptCount >= (staleJob.maxAttempts ?? DEFAULT_MAX_ATTEMPTS);
 
     const updated = await Job.findOneAndUpdate(
       {
@@ -448,9 +423,7 @@ export async function recoverStaleJobs({
       },
       {
         $set: {
-          status: exhausted
-            ? JOB_STATUS.DEAD_LETTER
-            : JOB_STATUS.RETRY,
+          status: exhausted ? JOB_STATUS.DEAD_LETTER : JOB_STATUS.RETRY,
           nextAttemptAt: exhausted ? null : currentTime,
           lastError: "Worker lease expired",
         },
@@ -495,9 +468,7 @@ export async function createJobsFromOutbox({
       {
         $set: {
           leaseOwner: workerId,
-          leaseUntil: new Date(
-            claimedAt.getTime() + DEFAULT_LEASE_DURATION_MS,
-          ),
+          leaseUntil: new Date(claimedAt.getTime() + DEFAULT_LEASE_DURATION_MS),
           leasedAt: claimedAt,
         },
       },
@@ -597,8 +568,7 @@ export async function createJobsFromOutbox({
         {
           $set: {
             availableAt: new Date(
-              Date.now() +
-                calculateBackoff((event.attempts ?? 0) + 1),
+              Date.now() + calculateBackoff((event.attempts ?? 0) + 1),
             ),
             error: getErrorMessage(error),
           },
@@ -694,16 +664,12 @@ export async function markOutboxEventFailed({
     },
     {
       $set: {
-        state: exhausted
-          ? OUTBOX_STATE.FAILED
-          : OUTBOX_STATE.PENDING,
+        state: exhausted ? OUTBOX_STATE.FAILED : OUTBOX_STATE.PENDING,
         error: getErrorMessage(error),
         failedAt: exhausted ? now() : null,
         availableAt: exhausted
           ? event.availableAt
-          : new Date(
-              Date.now() + calculateBackoff(attempts),
-            ),
+          : new Date(Date.now() + calculateBackoff(attempts)),
       },
       $inc: { attempts: 1 },
       $unset: {

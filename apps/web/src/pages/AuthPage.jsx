@@ -1,4 +1,3 @@
-
 import { useState, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
@@ -110,8 +109,7 @@ export default function AuthPage({ mode = "login" }) {
       });
     } catch (requestError) {
       setError(
-        requestError?.message ||
-          "Something went wrong. Please try again.",
+        requestError?.message || "Something went wrong. Please try again.",
       );
     } finally {
       requestInProgress.current = false;
@@ -154,7 +152,12 @@ export default function AuthPage({ mode = "login" }) {
             className="inline-flex items-center gap-3 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
           >
             <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white">
-              <ShieldCheck className="h-5 w-5" aria-hidden="true" />
+              <img
+                src="/pratyaya.svg"
+                alt=""
+                aria-hidden="true"
+                className="h-10 w-10 rounded-xl object-cover"
+              />
             </span>
 
             <span>
@@ -231,9 +234,7 @@ export default function AuthPage({ mode = "login" }) {
                 required
                 disabled={isBusy}
                 value={form.email}
-                onChange={(event) =>
-                  updateField("email", event.target.value)
-                }
+                onChange={(event) => updateField("email", event.target.value)}
                 className={inputClassName}
                 placeholder="you@example.com"
               />
@@ -263,9 +264,7 @@ export default function AuthPage({ mode = "login" }) {
                   type="button"
                   disabled={isBusy}
                   onClick={() => setShowPassword((current) => !current)}
-                  aria-label={
-                    showPassword ? "Hide password" : "Show password"
-                  }
+                  aria-label={showPassword ? "Hide password" : "Show password"}
                   aria-pressed={showPassword}
                   className="absolute right-2 top-1/2 mt-0.5 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:hover:bg-slate-800 dark:hover:text-white"
                 >
@@ -299,10 +298,7 @@ export default function AuthPage({ mode = "login" }) {
               className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-semibold text-white transition-colors hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 dark:hover:bg-blue-500 dark:focus-visible:ring-offset-slate-950"
             >
               {busy === "form" && (
-                <Loader2
-                  className="h-4 w-4 animate-spin"
-                  aria-hidden="true"
-                />
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
               )}
 
               {busy === "form"
@@ -314,9 +310,7 @@ export default function AuthPage({ mode = "login" }) {
           </form>
 
           <p className="mt-5 text-center text-sm text-slate-500 dark:text-slate-400">
-            {isRegister
-              ? "Already have an account?"
-              : "New to Pratyaya?"}{" "}
+            {isRegister ? "Already have an account?" : "New to Pratyaya?"}{" "}
             <Link
               to={isRegister ? "/login" : "/register"}
               className="font-semibold text-blue-600 hover:underline dark:text-blue-400"
@@ -329,16 +323,11 @@ export default function AuthPage({ mode = "login" }) {
         <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900/50 sm:p-8">
           <div className="flex items-center gap-3">
             <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400">
-              <FlaskConical
-                className="h-5 w-5"
-                aria-hidden="true"
-              />
+              <FlaskConical className="h-5 w-5" aria-hidden="true" />
             </span>
 
             <div>
-              <h2 className="text-base font-semibold">
-                Explore the sandbox
-              </h2>
+              <h2 className="text-base font-semibold">Explore the sandbox</h2>
 
               <p className="text-xs text-slate-500 dark:text-slate-400">
                 No credentials required
@@ -347,8 +336,8 @@ export default function AuthPage({ mode = "login" }) {
           </div>
 
           <p className="mt-5 text-sm leading-relaxed text-slate-600 dark:text-slate-400">
-            Choose a demo role to explore Pratyaya's simulated
-            payment infrastructure and role-based features.
+            Choose a demo role to explore Pratyaya's simulated payment
+            infrastructure and role-based features.
           </p>
 
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
@@ -402,8 +391,8 @@ export default function AuthPage({ mode = "login" }) {
               />
 
               <p className="text-xs leading-relaxed text-blue-800 dark:text-blue-200">
-                Simulation only. No real payments are processed.
-                Never enter actual card, banking, or customer information.
+                Simulation only. No real payments are processed. Never enter
+                actual card, banking, or customer information.
               </p>
             </div>
           </div>

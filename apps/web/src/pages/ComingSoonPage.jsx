@@ -1,4 +1,3 @@
-
 import { Construction, ArrowLeft, ArrowRight } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 
@@ -35,9 +34,8 @@ export default function ComingSoonPage() {
         </h1>
 
         <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-slate-600 dark:text-slate-400">
-          We're working on bringing this feature to Pratyaya.
-          It isn't available yet, but you can continue exploring
-          the rest of the platform.
+          We're working on bringing this feature to Pratyaya. It isn't available
+          yet, but you can continue exploring the rest of the platform.
         </p>
 
         <div className="mt-7 flex flex-wrap items-center justify-center gap-3">

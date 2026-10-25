@@ -29,7 +29,7 @@ describe("SettingsPage", () => {
     expect(
       await screen.findByRole("heading", { name: "Settings & Preferences" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("Guest Exploration Mode")).toBeInTheDocument();
+    expect(screen.getByText("Guest Mode")).toBeInTheDocument();
     expect(screen.getByText("Dark Mode")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Admin" })).toBeInTheDocument();
     expect(

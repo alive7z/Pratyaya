@@ -1,4 +1,3 @@
-
 export async function withTimeout(promise, timeoutMs, label = "operation") {
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
     throw new RangeError("timeoutMs must be a positive finite number");

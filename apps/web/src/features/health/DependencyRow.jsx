@@ -1,4 +1,3 @@
-
 import { CircleAlert, CircleCheck, LoaderCircle } from "lucide-react";
 import StatusBadge from "../../components/StatusBadge.jsx";
 
@@ -12,11 +11,7 @@ export default function DependencyRow({
   const isUp = status === "up";
   const isDown = status === "down";
 
-  const tone = isUp
-    ? "ready"
-    : isDown
-      ? "unreachable"
-      : "checking";
+  const tone = isUp ? "ready" : isDown ? "unreachable" : "checking";
 
   const label = isUp ? "Up" : isDown ? "Down" : "Unknown";
 

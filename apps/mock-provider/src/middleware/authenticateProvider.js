@@ -1,4 +1,3 @@
-
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { AppError } from "../lib/errors.js";
 
@@ -35,8 +34,7 @@ export function authenticateProvider(req, _res, next) {
 
     if (
       !Number.isSafeInteger(timestampSeconds) ||
-      Math.abs(currentSeconds - timestampSeconds) >
-        MAX_CLOCK_SKEW_SECONDS
+      Math.abs(currentSeconds - timestampSeconds) > MAX_CLOCK_SKEW_SECONDS
     ) {
       return next(
         new AppError(
@@ -47,8 +45,7 @@ export function authenticateProvider(req, _res, next) {
       );
     }
 
-    const isBodylessRequest =
-      req.method === "GET" || req.method === "HEAD";
+    const isBodylessRequest = req.method === "GET" || req.method === "HEAD";
 
     let rawBody;
 

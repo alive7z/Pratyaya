@@ -100,7 +100,7 @@ describe("Pratyaya web foundation", () => {
     ).toBeInTheDocument();
     expect(await screen.findByText("Ready")).toBeInTheDocument();
     expect(
-      await screen.findByText("M10 Full-Stack UI Integration"),
+      await screen.findByText("Payment reliability, engineered from the ledger up."),
     ).toBeInTheDocument();
   });
 
@@ -116,13 +116,15 @@ describe("Pratyaya web foundation", () => {
     );
 
     renderApp("/");
-    await screen.findByText("M10 Full-Stack UI Integration");
+    await screen.findByText(
+      "Payment reliability, engineered from the ledger up.",
+    );
     await user.click(screen.getByRole("link", { name: "System Health" }));
 
     expect(
-      await screen.findByRole("heading", { name: "System health" }),
+      await screen.findByRole("heading", { name: "System Health" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("Required infrastructure")).toBeInTheDocument();
+    expect(screen.getByText("Required Infrastructure")).toBeInTheDocument();
     expect(screen.getByText("MongoDB")).toBeInTheDocument();
     expect(screen.getByText("pratyaya-api")).toBeInTheDocument();
   });
@@ -153,12 +155,12 @@ describe("Pratyaya web foundation", () => {
     );
 
     renderApp("/health");
-    await screen.findByText("M10 Full-Stack UI Integration");
+    await screen.findByRole("heading", { name: "System Health" });
 
     expect(await screen.findByText("Degraded")).toBeInTheDocument();
     expect(
       screen.getByText(
-        "The API process is reachable, but a required dependency is unavailable.",
+        "The API is reachable, but a required dependency is unavailable.",
       ),
     ).toBeInTheDocument();
     expect(screen.getAllByText("Down").length).toBeGreaterThanOrEqual(1);
@@ -173,7 +175,7 @@ describe("Pratyaya web foundation", () => {
     );
 
     renderApp("/health");
-    await screen.findByText("M10 Full-Stack UI Integration");
+    await screen.findByRole("heading", { name: "System Health" });
 
     expect(await screen.findByText("API unreachable")).toBeInTheDocument();
     expect(screen.getByText(/Failed to fetch/i)).toBeInTheDocument();

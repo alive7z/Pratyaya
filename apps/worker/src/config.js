@@ -1,4 +1,3 @@
-
 import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
 import { z } from "zod";
@@ -25,12 +24,7 @@ const envSchema = z.object({
     .enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"])
     .default("info"),
 
-  WORKER_HEALTH_PORT: z.coerce
-    .number()
-    .int()
-    .min(1)
-    .max(65535)
-    .default(4200),
+  WORKER_HEALTH_PORT: z.coerce.number().int().min(1).max(65535).default(4200),
 
   MONGODB_URI: z
     .string()
@@ -40,12 +34,7 @@ const envSchema = z.object({
       "MONGODB_URI must be a valid MongoDB connection string",
     ),
 
-  MONGODB_MAX_POOL_SIZE: z.coerce
-    .number()
-    .int()
-    .min(1)
-    .max(50)
-    .default(10),
+  MONGODB_MAX_POOL_SIZE: z.coerce.number().int().min(1).max(50).default(10),
 
   MONGODB_SERVER_SELECTION_TIMEOUT_MS: z.coerce
     .number()
@@ -53,44 +42,23 @@ const envSchema = z.object({
     .min(1000)
     .default(5000),
 
-  MONGODB_CONNECT_TIMEOUT_MS: z.coerce
-    .number()
-    .int()
-    .min(1000)
-    .default(10000),
+  MONGODB_CONNECT_TIMEOUT_MS: z.coerce.number().int().min(1000).default(10000),
 
-  MONGODB_SOCKET_TIMEOUT_MS: z.coerce
-    .number()
-    .int()
-    .min(1000)
-    .default(45000),
+  MONGODB_SOCKET_TIMEOUT_MS: z.coerce.number().int().min(1000).default(45000),
 
   MONGODB_AUTO_INDEX: booleanString("false"),
 
-  PROVIDER_BASE_URL: z
-    .string()
-    .url()
-    .default("http://127.0.0.1:4100"),
+  PROVIDER_BASE_URL: z.string().url().default("http://127.0.0.1:4100"),
 
-  PROVIDER_ID: z
-    .enum(["alpha", "beta", "gamma"])
-    .default("alpha"),
+  PROVIDER_ID: z.enum(["alpha", "beta", "gamma"]).default("alpha"),
 
-  MOCK_PROVIDER_HMAC_SECRET: z
-    .string()
-    .min(32)
-    .default(DEV_PROVIDER_SECRET),
+  MOCK_PROVIDER_HMAC_SECRET: z.string().min(32).default(DEV_PROVIDER_SECRET),
 
   WEBHOOK_DELIVERY_URL: z.string().url().optional(),
 
   WEBHOOK_SIGNING_SECRET: z.string().min(32).optional(),
 
-  WEBHOOK_TIMEOUT_MS: z.coerce
-    .number()
-    .int()
-    .min(100)
-    .max(30000)
-    .default(5000),
+  WEBHOOK_TIMEOUT_MS: z.coerce.number().int().min(100).max(30000).default(5000),
 });
 
 export function loadWorkerConfig() {
@@ -99,8 +67,7 @@ export function loadWorkerConfig() {
   if (!parsed.success) {
     const issues = parsed.error.issues
       .map(
-        (issue) =>
-          `${issue.path.join(".") || "environment"}: ${issue.message}`,
+        (issue) => `${issue.path.join(".") || "environment"}: ${issue.message}`,
       )
       .join("; ");
 
@@ -122,12 +89,12 @@ export function loadWorkerConfig() {
     env.NODE_ENV === "production" &&
     new URL(env.PROVIDER_BASE_URL).protocol !== "https:"
   ) {
-    throw new Error(
-      "PROVIDER_BASE_URL must use HTTPS in production",
-    );
+    throw new Error("PROVIDER_BASE_URL must use HTTPS in production");
   }
 
-  if (Boolean(env.WEBHOOK_DELIVERY_URL) !== Boolean(env.WEBHOOK_SIGNING_SECRET)) {
+  if (
+    Boolean(env.WEBHOOK_DELIVERY_URL) !== Boolean(env.WEBHOOK_SIGNING_SECRET)
+  ) {
     throw new Error(
       "WEBHOOK_DELIVERY_URL and WEBHOOK_SIGNING_SECRET must be configured together",
     );
@@ -150,12 +117,9 @@ export function loadWorkerConfig() {
 
     mongodbUri: env.MONGODB_URI,
     mongodbMaxPoolSize: env.MONGODB_MAX_POOL_SIZE,
-    mongodbServerSelectionTimeoutMs:
-      env.MONGODB_SERVER_SELECTION_TIMEOUT_MS,
-    mongodbConnectTimeoutMs:
-      env.MONGODB_CONNECT_TIMEOUT_MS,
-    mongodbSocketTimeoutMs:
-      env.MONGODB_SOCKET_TIMEOUT_MS,
+    mongodbServerSelectionTimeoutMs: env.MONGODB_SERVER_SELECTION_TIMEOUT_MS,
+    mongodbConnectTimeoutMs: env.MONGODB_CONNECT_TIMEOUT_MS,
+    mongodbSocketTimeoutMs: env.MONGODB_SOCKET_TIMEOUT_MS,
     autoIndex: env.MONGODB_AUTO_INDEX,
 
     providerBaseUrl,

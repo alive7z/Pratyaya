@@ -1,4 +1,3 @@
-
 import {
   Bar,
   BarChart,
@@ -18,10 +17,7 @@ const illustrativeData = [
 
 export default function DemoReliabilityChart() {
   return (
-    <section
-      className="card min-w-0"
-      aria-labelledby="demo-chart-title"
-    >
+    <section className="card min-w-0" aria-labelledby="demo-chart-title">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="eyebrow">Interface Demonstration</p>
@@ -118,8 +114,8 @@ export default function DemoReliabilityChart() {
       </div>
 
       <p className="mt-4 text-center text-xs text-slate-500 dark:text-slate-400">
-        Illustrative data only. Values do not represent actual payment
-        records or measured system performance.
+        Illustrative data only. Values do not represent actual payment records
+        or measured system performance.
       </p>
     </section>
   );

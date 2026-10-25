@@ -1,4 +1,3 @@
-
 import { useState, useCallback, useRef, useEffect } from "react";
 import {
   ArrowLeft,
@@ -21,29 +20,25 @@ const DEMO_ROLES = [
   {
     role: "ADMIN",
     label: "Admin",
-    description:
-      "Manage routing, circuit breakers, and system integrity.",
+    description: "Manage routing, circuit breakers, and system integrity.",
     icon: Shield,
   },
   {
     role: "MERCHANT",
     label: "Merchant",
-    description:
-      "Manage payments, ledger accounts, and refunds.",
+    description: "Manage payments, ledger accounts, and refunds.",
     icon: Store,
   },
   {
     role: "DEVELOPER",
     label: "Developer",
-    description:
-      "Explore webhooks, API keys, and provider monitoring.",
+    description: "Explore webhooks, API keys, and provider monitoring.",
     icon: Code2,
   },
   {
     role: "RISK_ANALYST",
     label: "Risk Analyst",
-    description:
-      "Review risk rules, alerts, and transactions.",
+    description: "Review risk rules, alerts, and transactions.",
     icon: ShieldAlert,
   },
 ];
@@ -84,9 +79,7 @@ export function AuthGate({
         const session = response?.data;
 
         if (!session) {
-          throw new Error(
-            "Unable to create a demo session. Please try again.",
-          );
+          throw new Error("Unable to create a demo session. Please try again.");
         }
 
         if (!mountedRef.current) return;
@@ -100,8 +93,7 @@ export function AuthGate({
         if (!mountedRef.current) return;
 
         setError(
-          err?.message ||
-            "Failed to start the demo session. Please try again.",
+          err?.message || "Failed to start the demo session. Please try again.",
         );
       } finally {
         requestInProgress.current = false;
@@ -184,9 +176,7 @@ export function AuthGate({
                 aria-hidden="true"
               />
 
-              <p className="text-sm leading-relaxed">
-                {error}
-              </p>
+              <p className="text-sm leading-relaxed">{error}</p>
             </div>
           </div>
         )}
@@ -206,10 +196,7 @@ export function AuthGate({
                 "dark:bg-blue-950/40 dark:text-blue-400",
               )}
             >
-              <FlaskConical
-                className="h-4 w-4"
-                aria-hidden="true"
-              />
+              <FlaskConical className="h-4 w-4" aria-hidden="true" />
             </div>
 
             <h2
@@ -223,8 +210,8 @@ export function AuthGate({
           </div>
 
           <p className="mt-2 text-sm leading-relaxed text-slate-500 dark:text-slate-400">
-            Choose a role to explore Pratyaya with
-            role-specific access and permissions.
+            Choose a role to explore Pratyaya with role-specific access and
+            permissions.
           </p>
 
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
@@ -302,9 +289,7 @@ export function AuthGate({
                       </h3>
 
                       <p className="mt-1 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
-                        {isLoading
-                          ? "Starting your demo session..."
-                          : subtitle}
+                        {isLoading ? "Starting your demo session..." : subtitle}
                       </p>
                     </div>
                   </button>
@@ -363,8 +348,7 @@ export function AuthGate({
               "focus-visible:ring-2 focus-visible:ring-blue-500",
               "focus-visible:ring-offset-2",
               "dark:hover:bg-blue-500",
-              busyRole !== null &&
-                "pointer-events-none opacity-50",
+              busyRole !== null && "pointer-events-none opacity-50",
             )}
           >
             <UserRound className="h-4 w-4" aria-hidden="true" />
@@ -375,8 +359,8 @@ export function AuthGate({
       </section>
 
       <p className="mt-5 text-center text-xs leading-relaxed text-slate-500 dark:text-slate-400">
-        Demo sessions operate in a simulated environment.
-        No real payments or financial transactions are processed.
+        Demo sessions operate in a simulated environment. No real payments or
+        financial transactions are processed.
       </p>
     </main>
   );

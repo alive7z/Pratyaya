@@ -1,4 +1,3 @@
-
 import {
   Database,
   RefreshCw,
@@ -19,8 +18,7 @@ import { cn } from "../lib/utils.js";
 const statusConfig = {
   ready: {
     label: "Ready",
-    description:
-      "The API and authoritative MongoDB database are responding.",
+    description: "The API and authoritative MongoDB database are responding.",
     classes:
       "border-emerald-200 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950/30",
     icon: CheckCircle2,
@@ -35,8 +33,7 @@ const statusConfig = {
   },
   unreachable: {
     label: "Unreachable",
-    description:
-      "The browser could not reach the API health endpoints.",
+    description: "The browser could not reach the API health endpoints.",
     classes:
       "border-rose-200 bg-rose-50 dark:border-rose-900 dark:bg-rose-950/30",
     icon: WifiOff,
@@ -136,8 +133,8 @@ export default function SystemHealthPage() {
           </h1>
 
           <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-600 dark:text-slate-400">
-            Monitor API availability, runtime information,
-            and MongoDB connectivity using live health checks.
+            Monitor API availability, runtime information, and MongoDB
+            connectivity using live health checks.
           </p>
         </div>
 
@@ -148,10 +145,7 @@ export default function SystemHealthPage() {
           className="btn-secondary"
         >
           <RefreshCw
-            className={cn(
-              "h-4 w-4",
-              isFetching && "animate-spin",
-            )}
+            className={cn("h-4 w-4", isFetching && "animate-spin")}
             aria-hidden="true"
           />
           {isFetching ? "Refreshing..." : "Refresh"}
@@ -161,26 +155,17 @@ export default function SystemHealthPage() {
       <section
         aria-label="Overall system status"
         aria-live="polite"
-        className={cn(
-          "rounded-xl border p-5 sm:p-6",
-          currentStatus.classes,
-        )}
+        className={cn("rounded-xl border p-5 sm:p-6", currentStatus.classes)}
       >
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-3">
-              <StatusBadge
-                tone={overall}
-                pulse={overall === "checking"}
-              >
+              <StatusBadge tone={overall} pulse={overall === "checking"}>
                 {currentStatus.label}
               </StatusBadge>
 
               <span className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
-                <Clock3
-                  className="h-3.5 w-3.5"
-                  aria-hidden="true"
-                />
+                <Clock3 className="h-3.5 w-3.5" aria-hidden="true" />
                 Last checked: {formatTime(lastUpdatedAt)}
               </span>
             </div>
@@ -224,9 +209,8 @@ export default function SystemHealthPage() {
               </p>
 
               <p className="mt-3 text-xs leading-relaxed text-slate-600 dark:text-slate-400">
-                Verify that the backend is running, the API
-                port is configured correctly, and MongoDB
-                is accessible.
+                Verify that the backend is running, the API port is configured
+                correctly, and MongoDB is accessible.
               </p>
             </div>
           </div>
@@ -268,9 +252,7 @@ export default function SystemHealthPage() {
                     )}
                     aria-hidden="true"
                   />
-                  {livenessData?.status === "ok"
-                    ? "Live"
-                    : "Unavailable"}
+                  {livenessData?.status === "ok" ? "Live" : "Unavailable"}
                 </span>
               </Detail>
 
@@ -328,10 +310,7 @@ export default function SystemHealthPage() {
 
           <ul className="mt-5 space-y-3">
             {endpoints.map(([method, path]) => (
-              <li
-                key={path}
-                className="flex min-w-0 items-center gap-3"
-              >
+              <li key={path} className="flex min-w-0 items-center gap-3">
                 <span className="w-11 shrink-0 rounded-md bg-blue-50 px-2 py-1 text-center font-mono text-[11px] font-semibold text-blue-700 dark:bg-blue-950/40 dark:text-blue-400">
                   {method}
                 </span>

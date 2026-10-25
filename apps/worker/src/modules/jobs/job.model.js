@@ -1,4 +1,3 @@
-
 import mongoose from "mongoose";
 import { JOB_TYPES, JOB_STATUS } from "@pratyaya/shared";
 
@@ -175,8 +174,7 @@ jobSchema.index(
     priority: -1,
     _id: 1,
   },
-  {
-  },
+  {},
 );
 
 jobSchema.index(
@@ -194,8 +192,7 @@ jobSchema.index(
     merchantId: 1,
     createdAt: -1,
   },
-  {
-  },
+  {},
 );
 
 jobSchema.index(
@@ -234,7 +231,6 @@ jobSchema.index(
   },
 );
 
-export const Job =
-  mongoose.models.Job ?? mongoose.model("Job", jobSchema);
+export const Job = mongoose.models.Job ?? mongoose.model("Job", jobSchema);
 
 export { JOB_TYPES, JOB_STATUS };

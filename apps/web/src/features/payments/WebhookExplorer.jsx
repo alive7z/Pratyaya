@@ -1,4 +1,3 @@
-
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -12,7 +11,12 @@ import {
 } from "lucide-react";
 import { useAuth } from "../../app/AuthContext.jsx";
 import { apiClient } from "../../lib/apiClient.js";
-import { Card, CardHeader, CardTitle, CardContent } from "../../components/ui/Card.jsx";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardContent,
+} from "../../components/ui/Card.jsx";
 import { Badge } from "../../components/ui/Badge.jsx";
 import { Button } from "../../components/ui/Button.jsx";
 import {
@@ -72,14 +76,7 @@ export function WebhookExplorer() {
 
   const merchantId = auth?.merchantId ?? null;
 
-  const {
-    data,
-    isPending,
-    isFetching,
-    isError,
-    error,
-    refetch,
-  } = useQuery({
+  const { data, isPending, isFetching, isError, error, refetch } = useQuery({
     queryKey: ["webhooks", merchantId],
     queryFn: () => apiClient.get("/api/v1/webhooks/inbox?limit=50"),
     enabled: Boolean(auth),
@@ -123,7 +120,8 @@ export function WebhookExplorer() {
     },
     {
       title: "Processing Failed",
-      value: webhooks.filter((item) => item.processingStatus === "FAILED").length,
+      value: webhooks.filter((item) => item.processingStatus === "FAILED")
+        .length,
       icon: AlertTriangle,
       color: "text-amber-600",
     },
@@ -382,11 +380,7 @@ export function WebhookExplorer() {
               <div>
                 <h3 className="mb-2 text-sm font-semibold">Event Payload</h3>
                 <pre className="max-h-80 overflow-auto rounded-lg bg-slate-950 p-4 text-xs text-slate-200">
-                  {JSON.stringify(
-                    selectedWebhook.payload ?? {},
-                    null,
-                    2,
-                  )}
+                  {JSON.stringify(selectedWebhook.payload ?? {}, null, 2)}
                 </pre>
               </div>
             </div>

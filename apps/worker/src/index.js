@@ -1,15 +1,10 @@
-
 import { createServer } from "node:http";
 import { randomUUID } from "node:crypto";
 import mongoose from "mongoose";
 import { JOB_STATUS } from "@pratyaya/shared";
 import { loadWorkerConfig } from "./config.js";
 import { createLogger } from "./logger.js";
-import {
-  connectMongo,
-  disconnectMongo,
-  pingMongo,
-} from "./db/mongoose.js";
+import { connectMongo, disconnectMongo, pingMongo } from "./db/mongoose.js";
 import { Job } from "./modules/jobs/job.model.js";
 import {
   claimJobs,
@@ -125,19 +120,14 @@ const server = createServer(async (req, res) => {
 
   if (pathname === "/health/jobs") {
     try {
-      const [
-        pending,
-        retry,
-        processing,
-        completed,
-        deadLetter,
-      ] = await Promise.all([
-        Job.countDocuments({ status: JOB_STATUS.PENDING }),
-        Job.countDocuments({ status: JOB_STATUS.RETRY }),
-        Job.countDocuments({ status: JOB_STATUS.PROCESSING }),
-        Job.countDocuments({ status: JOB_STATUS.COMPLETED }),
-        Job.countDocuments({ status: JOB_STATUS.DEAD_LETTER }),
-      ]);
+      const [pending, retry, processing, completed, deadLetter] =
+        await Promise.all([
+          Job.countDocuments({ status: JOB_STATUS.PENDING }),
+          Job.countDocuments({ status: JOB_STATUS.RETRY }),
+          Job.countDocuments({ status: JOB_STATUS.PROCESSING }),
+          Job.countDocuments({ status: JOB_STATUS.COMPLETED }),
+          Job.countDocuments({ status: JOB_STATUS.DEAD_LETTER }),
+        ]);
 
       sendJson(res, 200, {
         status: "ok",
@@ -315,9 +305,7 @@ async function processJobsLoop() {
         outboxEventId,
         workerId,
       });
-    } else if (
-      release.job?.status === JOB_STATUS.DEAD_LETTER
-    ) {
+    } else if (release.job?.status === JOB_STATUS.DEAD_LETTER) {
       await markOutboxEventFailed({
         outboxEventId,
         workerId,
@@ -366,23 +354,11 @@ async function staleJobRecoveryLoop() {
 }
 
 async function startProcessingLoops() {
-  startPolling(
-    "outbox_relay",
-    OUTBOX_POLL_INTERVAL_MS,
-    outboxRelayLoop,
-  );
+  startPolling("outbox_relay", OUTBOX_POLL_INTERVAL_MS, outboxRelayLoop);
 
-  startPolling(
-    "job_processing",
-    POLL_INTERVAL_MS,
-    processJobsLoop,
-  );
+  startPolling("job_processing", POLL_INTERVAL_MS, processJobsLoop);
 
-  startPolling(
-    "stale_recovery",
-    RECOVERY_INTERVAL_MS,
-    staleJobRecoveryLoop,
-  );
+  startPolling("stale_recovery", RECOVERY_INTERVAL_MS, staleJobRecoveryLoop);
 
   logger.info(
     {
@@ -446,10 +422,7 @@ async function shutdown(signal, exitCode = 0) {
 
     await disconnectMongo();
 
-    logger.info(
-      { event: "worker.stopped" },
-      "Pratyaya worker stopped",
-    );
+    logger.info({ event: "worker.stopped" }, "Pratyaya worker stopped");
   } catch (error) {
     exitCode = 1;
 
@@ -481,10 +454,7 @@ async function start() {
     server.once("error", onError);
     server.once("listening", onListening);
 
-    server.listen(
-      config.healthPort,
-      "0.0.0.0",
-    );
+    server.listen(config.healthPort, "0.0.0.0");
   });
 
   started = true;

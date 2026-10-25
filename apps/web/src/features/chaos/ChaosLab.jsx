@@ -1,4 +1,3 @@
-
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -229,9 +228,7 @@ export function ChaosLab() {
             <Card
               key={scenario.id}
               className={
-                active
-                  ? "border-blue-500 ring-1 ring-blue-500/20"
-                  : ""
+                active ? "border-blue-500 ring-1 ring-blue-500/20" : ""
               }
             >
               <CardContent className="flex h-full flex-col p-5">
@@ -242,9 +239,7 @@ export function ChaosLab() {
                   {active && <Badge variant="warning">Active</Badge>}
                 </div>
 
-                <h3 className="mt-4 text-sm font-semibold">
-                  {scenario.name}
-                </h3>
+                <h3 className="mt-4 text-sm font-semibold">{scenario.name}</h3>
                 <p className="mt-1 text-xs uppercase tracking-wide text-slate-500">
                   {scenario.provider === "all"
                     ? "All Providers"
@@ -323,9 +318,7 @@ export function ChaosLab() {
               {providersQuery.error?.message}
             </p>
           ) : providers.length === 0 ? (
-            <p className="text-sm text-slate-500">
-              No providers configured.
-            </p>
+            <p className="text-sm text-slate-500">No providers configured.</p>
           ) : (
             <div className="grid gap-3 sm:grid-cols-3">
               {providers.map((provider) => {
@@ -370,9 +363,9 @@ export function ChaosLab() {
           </CardHeader>
           <CardContent>
             <p className="text-sm leading-relaxed text-slate-500 dark:text-slate-400">
-              Provider failures may trigger pre-dispatch failover.
-              Operations with uncertain outcomes require reconciliation
-              before further financial actions.
+              Provider failures may trigger pre-dispatch failover. Operations
+              with uncertain outcomes require reconciliation before further
+              financial actions.
             </p>
           </CardContent>
         </Card>
@@ -383,9 +376,9 @@ export function ChaosLab() {
           </CardHeader>
           <CardContent>
             <p className="text-sm leading-relaxed text-slate-500 dark:text-slate-400">
-              Use provider operation identifiers, idempotency controls,
-              and reconciliation to reduce the risk of duplicate
-              financial effects during recovery.
+              Use provider operation identifiers, idempotency controls, and
+              reconciliation to reduce the risk of duplicate financial effects
+              during recovery.
             </p>
           </CardContent>
         </Card>

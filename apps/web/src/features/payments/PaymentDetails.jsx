@@ -1,4 +1,3 @@
-
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 import {
@@ -71,9 +70,7 @@ function formatDate(value) {
 
   const date = new Date(value);
 
-  return Number.isNaN(date.getTime())
-    ? "—"
-    : date.toLocaleString();
+  return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString();
 }
 
 function money(value, currency) {
@@ -133,9 +130,7 @@ function Metric({ title, value, description, icon: Icon }) {
 function Detail({ label, value }) {
   return (
     <div className="min-w-0">
-      <dt className="text-xs text-slate-500 dark:text-slate-400">
-        {label}
-      </dt>
+      <dt className="text-xs text-slate-500 dark:text-slate-400">{label}</dt>
       <dd className="mt-1 wrap-break-word text-sm font-medium text-slate-900 dark:text-white">
         {value ?? "—"}
       </dd>
@@ -145,7 +140,11 @@ function Detail({ label, value }) {
 
 function Loading() {
   return (
-    <div role="status" aria-label="Loading payment details" className="space-y-5">
+    <div
+      role="status"
+      aria-label="Loading payment details"
+      className="space-y-5"
+    >
       <div className="h-12 w-64 animate-pulse rounded-lg bg-slate-200 dark:bg-slate-800" />
       <div className="grid gap-4 sm:grid-cols-3">
         {[1, 2, 3].map((item) => (
@@ -163,14 +162,12 @@ function ErrorState({ error, onRetry }) {
   return (
     <Card>
       <CardContent className="flex flex-col items-center py-12 text-center">
-        <AlertTriangle
-          className="h-9 w-9 text-red-500"
-          aria-hidden="true"
-        />
-        <h2 className="mt-4 text-lg font-semibold">
-          Unable to load payment
-        </h2>
-        <p role="alert" className="mt-2 max-w-md text-sm text-slate-500 dark:text-slate-400">
+        <AlertTriangle className="h-9 w-9 text-red-500" aria-hidden="true" />
+        <h2 className="mt-4 text-lg font-semibold">Unable to load payment</h2>
+        <p
+          role="alert"
+          className="mt-2 max-w-md text-sm text-slate-500 dark:text-slate-400"
+        >
           {error?.message ?? "The payment could not be retrieved."}
         </p>
         <div className="mt-5 flex gap-3">
@@ -201,7 +198,10 @@ function PaymentTimeline({ events, isLoading, error, onRetry }) {
         {isLoading ? (
           <div className="h-32 animate-pulse rounded-lg bg-slate-100 dark:bg-slate-900" />
         ) : error ? (
-          <div role="alert" className="flex flex-wrap items-center justify-between gap-3 text-sm text-red-600">
+          <div
+            role="alert"
+            className="flex flex-wrap items-center justify-between gap-3 text-sm text-red-600"
+          >
             <span>{error.message}</span>
             <Button variant="outline" size="sm" onClick={onRetry}>
               Retry
@@ -215,10 +215,7 @@ function PaymentTimeline({ events, isLoading, error, onRetry }) {
           <ol className="relative ml-2 border-l border-slate-200 dark:border-slate-800">
             {events.map((event, index) => {
               const status =
-                event.toStatus ??
-                event.status ??
-                event.eventType ??
-                "EVENT";
+                event.toStatus ?? event.status ?? event.eventType ?? "EVENT";
 
               const Icon =
                 status === "FAILED" || status === "CANCELLED"
@@ -285,7 +282,10 @@ function PaymentAttempts({ attempts, isLoading, error, onRetry }) {
         {isLoading ? (
           <div className="h-24 animate-pulse rounded-lg bg-slate-100 dark:bg-slate-900" />
         ) : error ? (
-          <div role="alert" className="flex flex-wrap items-center justify-between gap-3 text-sm text-red-600">
+          <div
+            role="alert"
+            className="flex flex-wrap items-center justify-between gap-3 text-sm text-red-600"
+          >
             <span>{error.message}</span>
             <Button variant="outline" size="sm" onClick={onRetry}>
               Retry
@@ -368,24 +368,21 @@ export function PaymentDetails() {
 
   const paymentQuery = useQuery({
     queryKey: ["payment", merchantId, paymentId],
-    queryFn: () =>
-      apiClient.get(`/api/v1/payments/${encodedId}`),
+    queryFn: () => apiClient.get(`/api/v1/payments/${encodedId}`),
     enabled,
     staleTime: 5000,
   });
 
   const timelineQuery = useQuery({
     queryKey: ["payment-timeline", merchantId, paymentId],
-    queryFn: () =>
-      apiClient.get(`/api/v1/payments/${encodedId}/timeline`),
+    queryFn: () => apiClient.get(`/api/v1/payments/${encodedId}/timeline`),
     enabled,
     staleTime: 5000,
   });
 
   const attemptsQuery = useQuery({
     queryKey: ["payment-attempts", merchantId, paymentId],
-    queryFn: () =>
-      apiClient.get(`/api/v1/payments/${encodedId}/attempts`),
+    queryFn: () => apiClient.get(`/api/v1/payments/${encodedId}/attempts`),
     enabled,
     staleTime: 5000,
   });
@@ -519,16 +516,11 @@ export function PaymentDetails() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">
-            Payment Information
-          </CardTitle>
+          <CardTitle className="text-lg">Payment Information</CardTitle>
         </CardHeader>
         <CardContent>
           <dl className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-            <Detail
-              label="Payment ID"
-              value={payment.id ?? paymentId}
-            />
+            <Detail label="Payment ID" value={payment.id ?? paymentId} />
             <Detail
               label="Customer"
               value={payment.customerLabel ?? payment.customerReference}
@@ -541,22 +533,10 @@ export function PaymentDetails() {
               label="Merchant Reference"
               value={payment.merchantReference}
             />
-            <Detail
-              label="Created"
-              value={formatDate(payment.createdAt)}
-            />
-            <Detail
-              label="Updated"
-              value={formatDate(payment.updatedAt)}
-            />
-            <Detail
-              label="Status Reason"
-              value={payment.statusReason}
-            />
-            <Detail
-              label="Currency"
-              value={payment.currency}
-            />
+            <Detail label="Created" value={formatDate(payment.createdAt)} />
+            <Detail label="Updated" value={formatDate(payment.updatedAt)} />
+            <Detail label="Status Reason" value={payment.statusReason} />
+            <Detail label="Currency" value={payment.currency} />
           </dl>
         </CardContent>
       </Card>
@@ -585,19 +565,14 @@ export function PaymentDetails() {
               aria-hidden="true"
             />
             <div>
-              <p className="text-sm font-semibold">
-                Refund Management
-              </p>
+              <p className="text-sm font-semibold">Refund Management</p>
               <p className="text-xs text-slate-500">
                 View refunds and available refund balance.
               </p>
             </div>
           </div>
 
-          <Link
-            to={`/payments/${encodedId}/refunds`}
-            className="btn-secondary"
-          >
+          <Link to={`/payments/${encodedId}/refunds`} className="btn-secondary">
             Manage Refunds
           </Link>
         </CardContent>

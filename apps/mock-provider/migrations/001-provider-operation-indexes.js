@@ -1,4 +1,3 @@
-
 import { ProviderOperation } from "../src/modules/operations/provider-operation.model.js";
 
 const OBSOLETE_INDEXES = new Map([

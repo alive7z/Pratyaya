@@ -1,18 +1,11 @@
-
 import pino from "pino";
 
 const REDACTED = "[REDACTED]";
 
 function sanitize(value) {
   return String(value ?? "")
-    .replace(
-      /mongodb(?:\+srv)?:\/\/[^\s"'<>]+/gi,
-      REDACTED,
-    )
-    .replace(
-      /(?:Bearer|Basic)\s+[A-Za-z0-9._~+/-]+=*/gi,
-      REDACTED,
-    );
+    .replace(/mongodb(?:\+srv)?:\/\/[^\s"'<>]+/gi, REDACTED)
+    .replace(/(?:Bearer|Basic)\s+[A-Za-z0-9._~+/-]+=*/gi, REDACTED);
 }
 
 function serializeError(error) {

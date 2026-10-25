@@ -11,31 +11,48 @@ import { ToastProvider } from "../src/components/ui/Toast.jsx";
 const fetchMock = vi.fn();
 vi.stubGlobal("fetch", fetchMock);
 function jsonResponse(body, status = 200) {
-  return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
 }
 const merchantAuth = {
   user: { displayName: "Demo Merchant", email: "demo.merchant@example.com" },
-  membership: { role: "MERCHANT", status: "ACTIVE", merchant: { name: "Northwind Commerce" } },
+  membership: {
+    role: "MERCHANT",
+    status: "ACTIVE",
+    merchant: { name: "Northwind Commerce" },
+  },
   merchant: { name: "Northwind Commerce" },
   permissions: ["payments.read", "payments.create", "ledger.read"],
   isDemo: true,
 };
 describe("debug", () => {
-  afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
   it("renders button and opens dialog", async () => {
     vi.spyOn(authApi, "me").mockResolvedValue({ data: merchantAuth });
     fetchMock.mockImplementation((url) => {
-      if (String(url).endsWith("/auth/me")) return jsonResponse({ data: merchantAuth });
-      if (String(url).includes("/payments/summary")) return jsonResponse({ data: { statusCounts: {} } });
-      if (String(url).includes("/payments") && String(url).includes("limit=50")) return jsonResponse({ data: { payments: [] } });
+      if (String(url).endsWith("/auth/me"))
+        return jsonResponse({ data: merchantAuth });
+      if (String(url).includes("/payments/summary"))
+        return jsonResponse({ data: { statusCounts: {} } });
+      if (String(url).includes("/payments") && String(url).includes("limit=50"))
+        return jsonResponse({ data: { payments: [] } });
       return jsonResponse({}, 404);
     });
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
     render(
       <QueryClientProvider client={client}>
         <AuthProvider>
           <MemoryRouter initialEntries={["/payments"]}>
-            <ToastProvider><PaymentDashboard /></ToastProvider>
+            <ToastProvider>
+              <PaymentDashboard />
+            </ToastProvider>
           </MemoryRouter>
         </AuthProvider>
       </QueryClientProvider>,
@@ -45,7 +62,7 @@ describe("debug", () => {
     console.log("BUTTON FOUND", btn);
     await userEvent.click(btn);
     // wait a bit
-    await new Promise(r => setTimeout(r, 200));
+    await new Promise((r) => setTimeout(r, 200));
     console.log("DIALOG?", screen.getByRole("dialog", { hidden: true }));
     console.log("BODY HTML snippet:", document.body.innerHTML.slice(0, 2000));
   });

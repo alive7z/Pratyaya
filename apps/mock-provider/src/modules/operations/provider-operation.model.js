@@ -1,4 +1,3 @@
-
 import mongoose from "mongoose";
 
 const PROVIDER_IDS = ["alpha", "beta", "gamma"];
@@ -168,7 +167,4 @@ export const ProviderOperation =
   mongoose.models.ProviderOperation ??
   mongoose.model("ProviderOperation", providerOperationSchema);
 
-export {
-  PROVIDER_OPERATION_TYPES,
-  PROVIDER_OPERATION_STATUS,
-};
+export { PROVIDER_OPERATION_TYPES, PROVIDER_OPERATION_STATUS };

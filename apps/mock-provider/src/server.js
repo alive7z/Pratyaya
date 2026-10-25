@@ -1,4 +1,3 @@
-
 import { createProviderApp } from "./app.js";
 import { loadConfig } from "./config/env.js";
 import { createLogger } from "./config/logger.js";

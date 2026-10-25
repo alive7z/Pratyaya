@@ -1,4 +1,3 @@
-
 import { useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -82,9 +81,7 @@ function ProfileAvatar({ name, size = "default" }) {
         "flex shrink-0 items-center justify-center",
         "rounded-full bg-blue-600 text-white",
         "font-semibold shadow-sm",
-        size === "large"
-          ? "h-11 w-11 text-sm"
-          : "h-9 w-9 text-xs",
+        size === "large" ? "h-11 w-11 text-sm" : "h-9 w-9 text-xs",
       )}
     >
       {getInitials(name)}
@@ -102,17 +99,13 @@ export function UserProfile() {
   const [busyRole, setBusyRole] = useState(null);
   const [loggingOut, setLoggingOut] = useState(false);
 
-  const displayName =
-    auth?.user?.displayName ||
-    auth?.user?.email ||
-    "User";
+  const displayName = auth?.user?.displayName || auth?.user?.email || "User";
 
   const role = auth?.membership?.role || "";
   const roleLabel = ROLE_LABELS[role] || role || "User";
 
   const organization =
-    auth?.membership?.merchant?.name ||
-    (role === "ADMIN" ? "Platform" : "");
+    auth?.membership?.merchant?.name || (role === "ADMIN" ? "Platform" : "");
 
   const isBusy = busyRole !== null || loggingOut;
 
@@ -140,9 +133,7 @@ export function UserProfile() {
     async (nextRole) => {
       if (isBusy || nextRole === role) return;
 
-      const selectedRole = DEMO_ROLES.find(
-        (item) => item.value === nextRole,
-      );
+      const selectedRole = DEMO_ROLES.find((item) => item.value === nextRole);
 
       if (!selectedRole) return;
 
@@ -153,9 +144,7 @@ export function UserProfile() {
         const session = response?.data;
 
         if (!session) {
-          throw new Error(
-            "Unable to create a demo session. Please try again.",
-          );
+          throw new Error("Unable to create a demo session. Please try again.");
         }
 
         setAuth(session);
@@ -177,8 +166,7 @@ export function UserProfile() {
         addToast({
           title: "Unable to switch role",
           description:
-            error?.message ||
-            "Something went wrong. Please try again.",
+            error?.message || "Something went wrong. Please try again.",
           variant: "error",
           duration: 4000,
         });
@@ -219,11 +207,7 @@ export function UserProfile() {
   if (!auth) return null;
 
   return (
-    <Dialog
-      modal
-      open={open}
-      onOpenChange={handleOpenChange}
-    >
+    <Dialog modal open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         <button
           type="button"
@@ -291,10 +275,7 @@ export function UserProfile() {
           )}
         >
           <div className="flex min-w-0 items-center gap-3">
-            <ProfileAvatar
-              name={displayName}
-              size="large"
-            />
+            <ProfileAvatar name={displayName} size="large" />
 
             <div className="min-w-0 flex-1 text-left">
               <DialogTitle className="truncate text-base font-semibold leading-tight text-slate-950 dark:text-white">
@@ -325,10 +306,7 @@ export function UserProfile() {
                   "disabled:cursor-not-allowed disabled:opacity-50",
                 )}
               >
-                <ArrowLeft
-                  className="h-4 w-4"
-                  aria-hidden="true"
-                />
+                <ArrowLeft className="h-4 w-4" aria-hidden="true" />
               </button>
 
               <div className="min-w-0">
@@ -343,77 +321,66 @@ export function UserProfile() {
             </div>
 
             <div className="mt-2 space-y-1">
-              {DEMO_ROLES.map(
-                ({ value, label, icon: Icon }) => {
-                  const isCurrent = value === role;
-                  const isLoading = busyRole === value;
+              {DEMO_ROLES.map(({ value, label, icon: Icon }) => {
+                const isCurrent = value === role;
+                const isLoading = busyRole === value;
 
-                  return (
-                    <button
-                      key={value}
-                      type="button"
-                      disabled={isBusy || isCurrent}
-                      onClick={() => handleSwitchRole(value)}
-                      aria-current={
-                        isCurrent ? "true" : undefined
-                      }
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    disabled={isBusy || isCurrent}
+                    onClick={() => handleSwitchRole(value)}
+                    aria-current={isCurrent ? "true" : undefined}
+                    className={cn(
+                      "group flex w-full items-center gap-3",
+                      "rounded-lg px-3 py-3 text-left",
+                      "text-sm transition-colors duration-150",
+                      "focus-visible:outline-none",
+                      "focus-visible:ring-2 focus-visible:ring-blue-500",
+                      isCurrent
+                        ? "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300"
+                        : "text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800",
+                      "disabled:cursor-not-allowed",
+                      !isCurrent && isBusy && "opacity-50",
+                    )}
+                  >
+                    <Icon
                       className={cn(
-                        "group flex w-full items-center gap-3",
-                        "rounded-lg px-3 py-3 text-left",
-                        "text-sm transition-colors duration-150",
-                        "focus-visible:outline-none",
-                        "focus-visible:ring-2 focus-visible:ring-blue-500",
+                        "h-4 w-4 shrink-0",
                         isCurrent
-                          ? "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300"
-                          : "text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800",
-                        "disabled:cursor-not-allowed",
-                        !isCurrent &&
-                          isBusy &&
-                          "opacity-50",
+                          ? "text-blue-600 dark:text-blue-400"
+                          : "text-slate-400",
                       )}
-                    >
-                      <Icon
+                      aria-hidden="true"
+                    />
+
+                    <span className="min-w-0 flex-1 font-medium">{label}</span>
+
+                    {isLoading ? (
+                      <Loader2
+                        className="h-4 w-4 animate-spin text-blue-600 dark:text-blue-400"
+                        aria-hidden="true"
+                      />
+                    ) : isCurrent ? (
+                      <span className="flex items-center gap-1 text-xs font-medium">
+                        <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                        Current
+                      </span>
+                    ) : (
+                      <ArrowRight
                         className={cn(
-                          "h-4 w-4 shrink-0",
-                          isCurrent
-                            ? "text-blue-600 dark:text-blue-400"
-                            : "text-slate-400",
+                          "h-4 w-4 text-slate-400",
+                          "transition-transform duration-150",
+                          "group-hover:translate-x-1",
+                          "motion-reduce:transform-none",
                         )}
                         aria-hidden="true"
                       />
-
-                      <span className="min-w-0 flex-1 font-medium">
-                        {label}
-                      </span>
-
-                      {isLoading ? (
-                        <Loader2
-                          className="h-4 w-4 animate-spin text-blue-600 dark:text-blue-400"
-                          aria-hidden="true"
-                        />
-                      ) : isCurrent ? (
-                        <span className="flex items-center gap-1 text-xs font-medium">
-                          <Check
-                            className="h-3.5 w-3.5"
-                            aria-hidden="true"
-                          />
-                          Current
-                        </span>
-                      ) : (
-                        <ArrowRight
-                          className={cn(
-                            "h-4 w-4 text-slate-400",
-                            "transition-transform duration-150",
-                            "group-hover:translate-x-1",
-                            "motion-reduce:transform-none",
-                          )}
-                          aria-hidden="true"
-                        />
-                      )}
-                    </button>
-                  );
-                },
-              )}
+                    )}
+                  </button>
+                );
+              })}
             </div>
 
             <div className="mt-3 border-t border-slate-200 pt-3 dark:border-slate-800">
@@ -447,19 +414,11 @@ export function UserProfile() {
                   "focus-visible:ring-2 focus-visible:ring-blue-500",
                 )}
               >
-                <Activity
-                  className="h-4 w-4 shrink-0"
-                  aria-hidden="true"
-                />
+                <Activity className="h-4 w-4 shrink-0" aria-hidden="true" />
 
-                <span className="flex-1">
-                  Go to Overview
-                </span>
+                <span className="flex-1">Go to Overview</span>
 
-                <ArrowRight
-                  className="h-4 w-4"
-                  aria-hidden="true"
-                />
+                <ArrowRight className="h-4 w-4" aria-hidden="true" />
               </button>
             </DialogClose>
 
@@ -482,9 +441,7 @@ export function UserProfile() {
                 aria-hidden="true"
               />
 
-              <span className="flex-1">
-                Switch Demo Role
-              </span>
+              <span className="flex-1">Switch Demo Role</span>
             </button>
 
             <div className="my-2 border-t border-slate-200 dark:border-slate-800" />
@@ -511,10 +468,7 @@ export function UserProfile() {
                   aria-hidden="true"
                 />
               ) : (
-                <LogOut
-                  className="h-4 w-4 shrink-0"
-                  aria-hidden="true"
-                />
+                <LogOut className="h-4 w-4 shrink-0" aria-hidden="true" />
               )}
 
               <span className="flex-1">

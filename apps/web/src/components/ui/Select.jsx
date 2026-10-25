@@ -86,13 +86,7 @@ SelectScrollDownButton.displayName = "SelectScrollDownButton";
 
 const SelectContent = React.forwardRef(
   (
-    {
-      className,
-      children,
-      position = "popper",
-      sideOffset = 4,
-      ...props
-    },
+    { className, children, position = "popper", sideOffset = 4, ...props },
     ref,
   ) => (
     <SelectPrimitive.Portal>
@@ -118,8 +112,7 @@ const SelectContent = React.forwardRef(
           "data-[side=left]:slide-in-from-right-2",
           "data-[side=right]:slide-in-from-left-2",
           "motion-reduce:animate-none",
-          position === "popper" &&
-            "min-w-(--radix-select-trigger-width)",
+          position === "popper" && "min-w-(--radix-select-trigger-width)",
           className,
         )}
         {...props}
@@ -145,21 +138,19 @@ const SelectContent = React.forwardRef(
 
 SelectContent.displayName = "SelectContent";
 
-const SelectLabel = React.forwardRef(
-  ({ className, ...props }, ref) => (
-    <SelectPrimitive.Label
-      ref={ref}
-      data-slot="select-label"
-      className={cn(
-        "px-2 py-1.5",
-        "text-xs font-semibold uppercase tracking-wide",
-        "text-slate-500 dark:text-slate-400",
-        className,
-      )}
-      {...props}
-    />
-  ),
-);
+const SelectLabel = React.forwardRef(({ className, ...props }, ref) => (
+  <SelectPrimitive.Label
+    ref={ref}
+    data-slot="select-label"
+    className={cn(
+      "px-2 py-1.5",
+      "text-xs font-semibold uppercase tracking-wide",
+      "text-slate-500 dark:text-slate-400",
+      className,
+    )}
+    {...props}
+  />
+));
 
 SelectLabel.displayName = "SelectLabel";
 
@@ -194,29 +185,25 @@ const SelectItem = React.forwardRef(
         </SelectPrimitive.ItemIndicator>
       </span>
 
-      <SelectPrimitive.ItemText>
-        {children}
-      </SelectPrimitive.ItemText>
+      <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
     </SelectPrimitive.Item>
   ),
 );
 
 SelectItem.displayName = "SelectItem";
 
-const SelectSeparator = React.forwardRef(
-  ({ className, ...props }, ref) => (
-    <SelectPrimitive.Separator
-      ref={ref}
-      data-slot="select-separator"
-      className={cn(
-        "-mx-1 my-1 h-px",
-        "bg-slate-200 dark:bg-slate-800",
-        className,
-      )}
-      {...props}
-    />
-  ),
-);
+const SelectSeparator = React.forwardRef(({ className, ...props }, ref) => (
+  <SelectPrimitive.Separator
+    ref={ref}
+    data-slot="select-separator"
+    className={cn(
+      "-mx-1 my-1 h-px",
+      "bg-slate-200 dark:bg-slate-800",
+      className,
+    )}
+    {...props}
+  />
+));
 
 SelectSeparator.displayName = "SelectSeparator";
 

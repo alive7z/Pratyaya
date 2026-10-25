@@ -1,10 +1,14 @@
-
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Save, RotateCcw, Pencil, RefreshCw } from "lucide-react";
 import { useAuth } from "../../app/AuthContext.jsx";
 import { apiClient } from "../../lib/apiClient.js";
-import { Card, CardHeader, CardTitle, CardContent } from "../../components/ui/Card.jsx";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardContent,
+} from "../../components/ui/Card.jsx";
 import { Button } from "../../components/ui/Button.jsx";
 import { Input } from "../../components/ui/Input.jsx";
 import { Label } from "../../components/ui/Label.jsx";
@@ -39,7 +43,7 @@ function normalizePolicy(data) {
   const policy = data?.data?.data ?? data?.data ?? data;
   const value = Array.isArray(policy)
     ? policy.find((item) => item.scope === "global" || item.id === "global")
-    : policy?.policy ?? policy?.global ?? policy;
+    : (policy?.policy ?? policy?.global ?? policy);
 
   if (!value || typeof value !== "object") return null;
 
@@ -47,7 +51,8 @@ function normalizePolicy(data) {
     ...DEFAULT_POLICY,
     ...value,
     preferredProviderId: value.preferredProviderId ?? "",
-    allowedProviderIds: value.allowedProviderIds ?? DEFAULT_POLICY.allowedProviderIds,
+    allowedProviderIds:
+      value.allowedProviderIds ?? DEFAULT_POLICY.allowedProviderIds,
     weights: { ...DEFAULT_POLICY.weights, ...value.weights },
   };
 }
@@ -112,7 +117,9 @@ export function RoutingPolicyConfig() {
     if (!checked && current.preferredProviderId === id) {
       setPolicy((prev) => ({
         ...prev,
-        allowedProviderIds: prev.allowedProviderIds.filter((provider) => provider !== id),
+        allowedProviderIds: prev.allowedProviderIds.filter(
+          (provider) => provider !== id,
+        ),
         preferredProviderId: "",
       }));
     }
@@ -169,10 +176,12 @@ export function RoutingPolicyConfig() {
     });
   };
 
-  const providers = [...new Set([
-    ...DEFAULT_POLICY.allowedProviderIds,
-    ...(savedPolicy?.allowedProviderIds ?? []),
-  ])];
+  const providers = [
+    ...new Set([
+      ...DEFAULT_POLICY.allowedProviderIds,
+      ...(savedPolicy?.allowedProviderIds ?? []),
+    ]),
+  ];
 
   return (
     <div className="space-y-6">
@@ -182,7 +191,8 @@ export function RoutingPolicyConfig() {
             Routing Policy Configuration
           </h1>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            Configure provider selection, routing weights, and failover behavior.
+            Configure provider selection, routing weights, and failover
+            behavior.
           </p>
         </div>
 
@@ -208,7 +218,7 @@ export function RoutingPolicyConfig() {
           <CardContent className="py-10 text-center text-sm text-slate-500">
             {!auth
               ? "Sign in to view routing policies."
-              : query.error?.message ?? "Unable to load routing policy."}
+              : (query.error?.message ?? "Unable to load routing policy.")}
           </CardContent>
         </Card>
       ) : !savedPolicy ? (
@@ -238,7 +248,10 @@ export function RoutingPolicyConfig() {
               )}
 
               {success && (
-                <p role="status" className="text-sm font-medium text-emerald-600">
+                <p
+                  role="status"
+                  className="text-sm font-medium text-emerald-600"
+                >
                   {success}
                 </p>
               )}
@@ -279,7 +292,9 @@ export function RoutingPolicyConfig() {
                         type="checkbox"
                         disabled={!editing}
                         checked={current.allowedProviderIds.includes(id)}
-                        onChange={(event) => toggleProvider(id, event.target.checked)}
+                        onChange={(event) =>
+                          toggleProvider(id, event.target.checked)
+                        }
                         className="h-4 w-4 accent-blue-600"
                       />
                       <span className="capitalize">{id}</span>
@@ -336,7 +351,9 @@ export function RoutingPolicyConfig() {
                         max="100"
                         disabled={!editing}
                         value={current.weights[key]}
-                        onChange={(event) => updateWeight(key, event.target.value)}
+                        onChange={(event) =>
+                          updateWeight(key, event.target.value)
+                        }
                       />
                     </div>
                   ))}
@@ -348,7 +365,9 @@ export function RoutingPolicyConfig() {
 
                 <div className="flex items-center justify-between gap-5">
                   <div>
-                    <Label htmlFor="health-threshold">Minimum Health Threshold</Label>
+                    <Label htmlFor="health-threshold">
+                      Minimum Health Threshold
+                    </Label>
                     <p className="mt-1 text-xs text-slate-500">
                       Minimum provider availability required for routing.
                     </p>
@@ -369,9 +388,21 @@ export function RoutingPolicyConfig() {
                 </div>
 
                 {[
-                  ["fallbackEnabled", "Fallback Enabled", "Allow alternative providers when routing fails."],
-                  ["circuitBreakerEnabled", "Circuit Breaker", "Isolate providers experiencing repeated failures."],
-                  ["stickinessEnabled", "Provider Stickiness", "Preserve provider binding for ongoing operations."],
+                  [
+                    "fallbackEnabled",
+                    "Fallback Enabled",
+                    "Allow alternative providers when routing fails.",
+                  ],
+                  [
+                    "circuitBreakerEnabled",
+                    "Circuit Breaker",
+                    "Isolate providers experiencing repeated failures.",
+                  ],
+                  [
+                    "stickinessEnabled",
+                    "Provider Stickiness",
+                    "Preserve provider binding for ongoing operations.",
+                  ],
                 ].map(([key, label, description]) => (
                   <div
                     key={key}
@@ -379,7 +410,9 @@ export function RoutingPolicyConfig() {
                   >
                     <div>
                       <p className="text-sm font-medium">{label}</p>
-                      <p className="mt-1 text-xs text-slate-500">{description}</p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {description}
+                      </p>
                     </div>
                     <Switch
                       checked={Boolean(current[key])}

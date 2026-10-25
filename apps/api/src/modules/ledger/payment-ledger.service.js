@@ -1,4 +1,3 @@
-
 import { LEDGER_EVENT_TYPES, PAYMENT_STATUS } from "@pratyaya/shared";
 import { AppError } from "../../lib/errors.js";
 import { runFinancialTransaction } from "../../lib/transaction.js";
@@ -22,19 +21,11 @@ function parseAmount(value, code = "INVALID_AMOUNT") {
   try {
     parsed = BigInt(value);
   } catch {
-    throw new AppError(
-      422,
-      code,
-      "Amount must be a positive integer",
-    );
+    throw new AppError(422, code, "Amount must be a positive integer");
   }
 
   if (parsed <= 0n) {
-    throw new AppError(
-      422,
-      code,
-      "Amount must be greater than zero",
-    );
+    throw new AppError(422, code, "Amount must be greater than zero");
   }
 
   return parsed;
@@ -81,11 +72,7 @@ async function loadPayment({ merchantId, paymentId, session }) {
   const payment = await query;
 
   if (!payment) {
-    throw new AppError(
-      404,
-      "PAYMENT_NOT_FOUND",
-      "Payment not found",
-    );
+    throw new AppError(404, "PAYMENT_NOT_FOUND", "Payment not found");
   }
 
   return payment;
@@ -141,9 +128,7 @@ async function checkReplay({
   paymentId,
   expectedAmount,
 }) {
-  const existing = await Journal.findOne(source)
-    .session(session)
-    .lean();
+  const existing = await Journal.findOne(source).session(session).lean();
 
   if (!existing) return null;
 
@@ -211,10 +196,9 @@ export async function confirmTrustedCapture({
       });
 
       if (
-        ![
-          PAYMENT_STATUS.CAPTURING,
-          PAYMENT_STATUS.UNKNOWN,
-        ].includes(payment.status)
+        ![PAYMENT_STATUS.CAPTURING, PAYMENT_STATUS.UNKNOWN].includes(
+          payment.status,
+        )
       ) {
         throw new AppError(
           409,
@@ -232,10 +216,7 @@ export async function confirmTrustedCapture({
         "INVALID_CAPTURE_AMOUNT",
       );
 
-      if (
-        capturedBefore > 0n ||
-        captureAmount > authorizedAmount
-      ) {
+      if (capturedBefore > 0n || captureAmount > authorizedAmount) {
         throw new AppError(
           409,
           "CAPTURE_EXCEEDS_AUTHORIZATION",
@@ -346,10 +327,7 @@ export async function confirmTrustedRefund({
   isDemo = false,
   injectFailure = false,
 }) {
-  const refundAmount = parseAmount(
-    amountMinor,
-    "INVALID_REFUND_AMOUNT",
-  );
+  const refundAmount = parseAmount(amountMinor, "INVALID_REFUND_AMOUNT");
 
   const source = {
     merchantId,

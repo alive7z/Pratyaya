@@ -1,4 +1,3 @@
-
 export class AppError extends Error {
   constructor(statusCode, code, message, details) {
     super(message);

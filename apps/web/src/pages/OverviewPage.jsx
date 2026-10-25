@@ -1,4 +1,3 @@
-
 import { lazy, Suspense } from "react";
 import {
   ArrowRight,
@@ -120,29 +119,19 @@ export default function OverviewPage() {
           </h1>
 
           <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-600 dark:text-slate-400 sm:text-base">
-            Pratyaya is a simulated payment platform built to
-            explore reliable financial systems, including
-            idempotency, double-entry accounting, provider
-            routing, circuit breakers, reconciliation, and
+            Pratyaya is a simulated payment platform built to explore reliable
+            financial systems, including idempotency, double-entry accounting,
+            provider routing, circuit breakers, reconciliation, and
             human-authorized AI assistance.
           </p>
 
           <div className="mt-6 flex flex-wrap items-center gap-3">
-            <Link
-              to="/payments"
-              className="btn-primary"
-            >
+            <Link to="/payments" className="btn-primary">
               Explore Payments
-              <ArrowRight
-                className="h-4 w-4"
-                aria-hidden="true"
-              />
+              <ArrowRight className="h-4 w-4" aria-hidden="true" />
             </Link>
 
-            <Link
-              to="/ledger"
-              className="btn-secondary"
-            >
+            <Link to="/ledger" className="btn-secondary">
               View Ledger
             </Link>
 
@@ -152,18 +141,14 @@ export default function OverviewPage() {
               rel="noopener noreferrer"
               className="btn-secondary"
             >
-              <BookOpen
-                className="h-4 w-4"
-                aria-hidden="true"
-              />
+              <BookOpen className="h-4 w-4" aria-hidden="true" />
               API Docs
             </a>
           </div>
 
           <p className="mt-5 max-w-xl text-xs leading-relaxed text-slate-500 dark:text-slate-400">
-            All financial operations use synthetic data.
-            No real money, card details, or banking
-            credentials are processed.
+            All financial operations use synthetic data. No real money, card
+            details, or banking credentials are processed.
           </p>
         </div>
 
@@ -176,10 +161,7 @@ export default function OverviewPage() {
           )}
         >
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">
-            <ShieldCheck
-              className="h-5 w-5"
-              aria-hidden="true"
-            />
+            <ShieldCheck className="h-5 w-5" aria-hidden="true" />
           </div>
 
           <p className="mt-5 text-xs font-semibold uppercase tracking-wider text-blue-700 dark:text-blue-300">
@@ -191,9 +173,8 @@ export default function OverviewPage() {
           </h2>
 
           <p className="mt-3 text-sm leading-relaxed text-slate-600 dark:text-slate-300">
-            Payment state changes, ledger journals, and
-            outbox records are designed to remain
-            consistent throughout simulated transactions.
+            Payment state changes, ledger journals, and outbox records are
+            designed to remain consistent throughout simulated transactions.
           </p>
 
           <div className="mt-5 space-y-3 border-t border-blue-200 pt-5 dark:border-blue-900/60">
@@ -203,10 +184,7 @@ export default function OverviewPage() {
               "Idempotent payment operations",
               "Verifiable ledger integrity checks",
             ].map((item) => (
-              <div
-                key={item}
-                className="flex items-start gap-2.5"
-              >
+              <div key={item} className="flex items-start gap-2.5">
                 <ShieldCheck
                   className="mt-0.5 h-4 w-4 shrink-0 text-blue-600 dark:text-blue-400"
                   aria-hidden="true"
@@ -247,10 +225,7 @@ export default function OverviewPage() {
               )}
             >
               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400">
-                <Icon
-                  className="h-5 w-5"
-                  aria-hidden="true"
-                />
+                <Icon className="h-5 w-5" aria-hidden="true" />
               </span>
 
               <div className="min-w-0 flex-1">
@@ -299,15 +274,9 @@ export default function OverviewPage() {
 
           <div className="mt-6 space-y-5">
             {foundationItems.map(({ icon: Icon, title, description }) => (
-              <div
-                key={title}
-                className="flex items-start gap-3"
-              >
+              <div key={title} className="flex items-start gap-3">
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400">
-                  <Icon
-                    className="h-4 w-4"
-                    aria-hidden="true"
-                  />
+                  <Icon className="h-4 w-4" aria-hidden="true" />
                 </span>
 
                 <div>
@@ -332,9 +301,8 @@ export default function OverviewPage() {
           </h2>
 
           <p className="mt-3 text-sm leading-relaxed text-slate-600 dark:text-slate-400">
-            The next development phase focuses on improving
-            system visibility, failure recovery, and
-            performance validation.
+            The next development phase focuses on improving system visibility,
+            failure recovery, and performance validation.
           </p>
 
           <ul className="mt-6 space-y-4">
@@ -361,9 +329,8 @@ export default function OverviewPage() {
                 />
 
                 <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-300">
-                  Pratyaya operates in a sandbox environment
-                  using synthetic payment data and simulated
-                  financial workflows.
+                  Pratyaya operates in a sandbox environment using synthetic
+                  payment data and simulated financial workflows.
                 </p>
               </div>
             </div>

@@ -27,11 +27,11 @@ describe("ErrorBoundary component", () => {
     );
 
     expect(
-      screen.getByText(/Something went wrong loading this view/i),
+      screen.getByText("Something went wrong"),
     ).toBeInTheDocument();
     expect(screen.getByText(/Crash test failure/i)).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /Go back to previous page/i }),
+      screen.getByRole("button", { name: "Go back" }),
     ).toBeInTheDocument();
 
     consoleError.mockRestore();
@@ -56,7 +56,7 @@ describe("AuthGate component", () => {
       screen.getByText("Inject faults across providers"),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /Go back to previous page/i }),
+      screen.getByRole("button", { name: "Go back" }),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /Explore as Admin/i }),

@@ -1,16 +1,9 @@
-
 import * as React from "react";
 import { cn } from "../../lib/utils.js";
 
 const Label = React.forwardRef(
   (
-    {
-      className,
-      required = false,
-      disabled = false,
-      children,
-      ...props
-    },
+    { className, required = false, disabled = false, children, ...props },
     ref,
   ) => (
     <label
@@ -34,10 +27,7 @@ const Label = React.forwardRef(
       {children}
 
       {required && (
-        <span
-          aria-hidden="true"
-          className="text-red-500 dark:text-red-400"
-        >
+        <span aria-hidden="true" className="text-red-500 dark:text-red-400">
           *
         </span>
       )}

@@ -1,4 +1,3 @@
-
 import { cn } from "../../lib/utils.js";
 
 export function Card({ className, ...props }) {
@@ -22,11 +21,7 @@ export function CardHeader({ className, ...props }) {
   return (
     <div
       data-slot="card-header"
-      className={cn(
-        "flex flex-col gap-1.5",
-        "p-5 sm:p-6",
-        className,
-      )}
+      className={cn("flex flex-col gap-1.5", "p-5 sm:p-6", className)}
       {...props}
     />
   );
@@ -65,11 +60,7 @@ export function CardAction({ className, ...props }) {
   return (
     <div
       data-slot="card-action"
-      className={cn(
-        "flex items-center gap-2",
-        "self-start",
-        className,
-      )}
+      className={cn("flex items-center gap-2", "self-start", className)}
       {...props}
     />
   );
@@ -79,10 +70,7 @@ export function CardContent({ className, ...props }) {
   return (
     <div
       data-slot="card-content"
-      className={cn(
-        "min-w-0 flex-1 p-5 pt-0 sm:p-6 sm:pt-0",
-        className,
-      )}
+      className={cn("min-w-0 flex-1 p-5 pt-0 sm:p-6 sm:pt-0", className)}
       {...props}
     />
   );

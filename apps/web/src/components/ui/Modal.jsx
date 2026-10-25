@@ -1,4 +1,3 @@
-
 "use client";
 
 import * as React from "react";
@@ -8,12 +7,7 @@ import { cn } from "../../lib/utils.js";
 
 const ModalContext = React.createContext(null);
 
-export function Modal({
-  open,
-  onOpenChange,
-  children,
-  defaultOpen = false,
-}) {
+export function Modal({ open, onOpenChange, children, defaultOpen = false }) {
   const [internalOpen, setInternalOpen] = React.useState(defaultOpen);
 
   const isControlled = open !== undefined;
@@ -37,10 +31,7 @@ export function Modal({
 
   return (
     <ModalContext.Provider value={contextValue}>
-      <DialogPrimitive.Root
-        open={isOpen}
-        onOpenChange={setOpen}
-      >
+      <DialogPrimitive.Root open={isOpen} onOpenChange={setOpen}>
         {children}
       </DialogPrimitive.Root>
     </ModalContext.Provider>
@@ -78,13 +69,7 @@ export function ModalTrigger({
 
 const ModalContent = React.forwardRef(
   (
-    {
-      className,
-      children,
-      showCloseButton = true,
-      overlayClassName,
-      ...props
-    },
+    { className, children, showCloseButton = true, overlayClassName, ...props },
     ref,
   ) => (
     <DialogPrimitive.Portal>
@@ -175,38 +160,34 @@ export function ModalHeader({ className, ...props }) {
   );
 }
 
-const ModalTitle = React.forwardRef(
-  ({ className, ...props }, ref) => (
-    <DialogPrimitive.Title
-      ref={ref}
-      data-slot="modal-title"
-      className={cn(
-        "text-lg font-semibold leading-tight tracking-tight",
-        "text-slate-950 dark:text-slate-50",
-        "sm:text-xl",
-        className,
-      )}
-      {...props}
-    />
-  ),
-);
+const ModalTitle = React.forwardRef(({ className, ...props }, ref) => (
+  <DialogPrimitive.Title
+    ref={ref}
+    data-slot="modal-title"
+    className={cn(
+      "text-lg font-semibold leading-tight tracking-tight",
+      "text-slate-950 dark:text-slate-50",
+      "sm:text-xl",
+      className,
+    )}
+    {...props}
+  />
+));
 
 ModalTitle.displayName = "ModalTitle";
 
-const ModalDescription = React.forwardRef(
-  ({ className, ...props }, ref) => (
-    <DialogPrimitive.Description
-      ref={ref}
-      data-slot="modal-description"
-      className={cn(
-        "text-sm leading-relaxed",
-        "text-slate-500 dark:text-slate-400",
-        className,
-      )}
-      {...props}
-    />
-  ),
-);
+const ModalDescription = React.forwardRef(({ className, ...props }, ref) => (
+  <DialogPrimitive.Description
+    ref={ref}
+    data-slot="modal-description"
+    className={cn(
+      "text-sm leading-relaxed",
+      "text-slate-500 dark:text-slate-400",
+      className,
+    )}
+    {...props}
+  />
+));
 
 ModalDescription.displayName = "ModalDescription";
 

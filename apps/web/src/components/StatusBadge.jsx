@@ -1,4 +1,3 @@
-
 import * as React from "react";
 import { cn } from "../lib/utils.js";
 
@@ -71,7 +70,7 @@ const StatusBadge = React.forwardRef(
             className={cn(
               "relative inline-flex h-1.5 w-1.5 shrink-0",
               "items-center justify-center",
-              )}
+            )}
           >
             {pulse && (
               <span
@@ -94,9 +93,7 @@ const StatusBadge = React.forwardRef(
           </span>
         )}
 
-        <span className="min-w-0 truncate">
-          {children}
-        </span>
+        <span className="min-w-0 truncate">{children}</span>
       </span>
     );
   },

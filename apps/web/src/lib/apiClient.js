@@ -141,10 +141,7 @@ export const ledgerApi = {
 export const paymentsApi = {
   list: (query = {}) => request(`/payments${queryString(query)}`),
   create: (body, idempotencyKey) =>
-    request(
-      "/payments",
-      idempotentJsonOptions("POST", body, idempotencyKey),
-    ),
+    request("/payments", idempotentJsonOptions("POST", body, idempotencyKey)),
   summary: () => request("/payments/summary"),
   get: (id) => request(`/payments/${id}`),
   timeline: (id) => request(`/payments/${id}/timeline`),

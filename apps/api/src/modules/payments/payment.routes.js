@@ -1,4 +1,3 @@
-
 import { Router } from "express";
 import { PERMISSIONS, paymentCreateSchema } from "@pratyaya/shared";
 import { z } from "zod";
@@ -20,9 +19,7 @@ import { createRefundRouter } from "./refund.routes.js";
 
 const paymentIdSchema = z
   .object({
-    paymentId: z
-      .string()
-      .regex(/^[0-9a-fA-F]{24}$/, "Invalid payment ID"),
+    paymentId: z.string().regex(/^[0-9a-fA-F]{24}$/, "Invalid payment ID"),
   })
   .strict();
 
@@ -49,13 +46,10 @@ const paymentListQuerySchema = z
     limit: z.coerce.number().int().min(1).max(100).default(20),
   })
   .strict()
-  .refine(
-    ({ from, to }) => !from || !to || new Date(from) <= new Date(to),
-    {
-      message: "from must be earlier than or equal to to",
-      path: ["to"],
-    },
-  );
+  .refine(({ from, to }) => !from || !to || new Date(from) <= new Date(to), {
+    message: "from must be earlier than or equal to to",
+    path: ["to"],
+  });
 
 const captureSchema = z
   .object({

@@ -1,17 +1,15 @@
-
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import {
-  Search,
-  RefreshCw,
-  FilterX,
-  Eye,
-  AlertTriangle,
-} from "lucide-react";
+import { Search, RefreshCw, FilterX, Eye, AlertTriangle } from "lucide-react";
 import { useAuth } from "../../app/AuthContext.jsx";
 import { apiClient } from "../../lib/apiClient.js";
 import { formatMoney } from "../../lib/format.js";
-import { Card, CardHeader, CardTitle, CardContent } from "../../components/ui/Card.jsx";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardContent,
+} from "../../components/ui/Card.jsx";
 import { Badge } from "../../components/ui/Badge.jsx";
 import { Button } from "../../components/ui/Button.jsx";
 import { Input } from "../../components/ui/Input.jsx";
@@ -77,7 +75,9 @@ function Detail({ label, children }) {
   return (
     <div className="min-w-0 rounded-lg bg-slate-50 p-3 dark:bg-slate-800/60">
       <p className="text-xs text-slate-500 dark:text-slate-400">{label}</p>
-      <div className="mt-1 break-all text-sm font-semibold">{children ?? "—"}</div>
+      <div className="mt-1 break-all text-sm font-semibold">
+        {children ?? "—"}
+      </div>
     </div>
   );
 }
@@ -86,7 +86,10 @@ function DecisionDetails({ decision, onClose }) {
   const scores = decision.scoreBreakdown ?? [];
 
   return (
-    <Dialog open={Boolean(decision)} onOpenChange={(open) => !open && onClose()}>
+    <Dialog
+      open={Boolean(decision)}
+      onOpenChange={(open) => !open && onClose()}
+    >
       <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Routing Decision Details</DialogTitle>
@@ -106,7 +109,11 @@ function DecisionDetails({ decision, onClose }) {
               {STRATEGIES[decision.routingStrategy] ?? decision.routingStrategy}
             </Detail>
             <Detail label="Decision Reason">
-              <Badge variant={REASON_VARIANTS[decision.decisionReason] ?? "secondary"}>
+              <Badge
+                variant={
+                  REASON_VARIANTS[decision.decisionReason] ?? "secondary"
+                }
+              >
                 {decision.decisionReason?.replaceAll("_", " ") ?? "Unknown"}
               </Badge>
             </Detail>
@@ -120,18 +127,37 @@ function DecisionDetails({ decision, onClose }) {
                 <table className="w-full text-left text-sm">
                   <thead className="border-b border-slate-200 text-xs text-slate-500 dark:border-slate-800">
                     <tr>
-                      {["Provider", "Reliability", "Latency", "Cost", "Weighted"].map((label) => (
-                        <th key={label} className="px-3 py-3">{label}</th>
+                      {[
+                        "Provider",
+                        "Reliability",
+                        "Latency",
+                        "Cost",
+                        "Weighted",
+                      ].map((label) => (
+                        <th key={label} className="px-3 py-3">
+                          {label}
+                        </th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {scores.map((score) => (
-                      <tr key={score.providerId} className="border-b border-slate-100 dark:border-slate-800">
-                        <td className="px-3 py-3 font-medium">{score.providerId}</td>
-                        <td className="px-3 py-3">{formatScore(score.reliabilityScore)}</td>
-                        <td className="px-3 py-3">{formatScore(score.latencyScore)}</td>
-                        <td className="px-3 py-3">{formatScore(score.costScore)}</td>
+                      <tr
+                        key={score.providerId}
+                        className="border-b border-slate-100 dark:border-slate-800"
+                      >
+                        <td className="px-3 py-3 font-medium">
+                          {score.providerId}
+                        </td>
+                        <td className="px-3 py-3">
+                          {formatScore(score.reliabilityScore)}
+                        </td>
+                        <td className="px-3 py-3">
+                          {formatScore(score.latencyScore)}
+                        </td>
+                        <td className="px-3 py-3">
+                          {formatScore(score.costScore)}
+                        </td>
                         <td className="px-3 py-3 font-semibold text-blue-600">
                           {formatScore(score.weightedScore)}
                         </td>
@@ -141,7 +167,9 @@ function DecisionDetails({ decision, onClose }) {
                 </table>
               </div>
             ) : (
-              <p className="text-sm text-slate-500">No scoring data available.</p>
+              <p className="text-sm text-slate-500">
+                No scoring data available.
+              </p>
             )}
           </section>
 
@@ -151,7 +179,9 @@ function DecisionDetails({ decision, onClose }) {
               <div className="flex flex-wrap gap-2">
                 {decision.eligibleProviders?.length ? (
                   decision.eligibleProviders.map((provider) => (
-                    <Badge key={provider} variant="success">{provider}</Badge>
+                    <Badge key={provider} variant="success">
+                      {provider}
+                    </Badge>
                   ))
                 ) : (
                   <p className="text-xs text-slate-500">None</p>
@@ -163,7 +193,10 @@ function DecisionDetails({ decision, onClose }) {
               <div className="space-y-2">
                 {decision.rejectedProviders?.length ? (
                   decision.rejectedProviders.map((provider) => (
-                    <p key={provider.providerId} className="text-xs text-red-600 dark:text-red-400">
+                    <p
+                      key={provider.providerId}
+                      className="text-xs text-red-600 dark:text-red-400"
+                    >
                       {provider.providerId}: {provider.reason}
                     </p>
                   ))
@@ -193,14 +226,7 @@ export function RoutingDecisionExplorer() {
   const [filters, setFilters] = useState(INITIAL_FILTERS);
   const [selectedDecision, setSelectedDecision] = useState(null);
 
-  const {
-    data,
-    isPending,
-    isError,
-    error,
-    isFetching,
-    refetch,
-  } = useQuery({
+  const { data, isPending, isError, error, isFetching, refetch } = useQuery({
     queryKey: ["routing-decisions", auth?.merchantId, "explorer"],
     queryFn: () => apiClient.get("/api/v1/routing/decisions?limit=100"),
     enabled: Boolean(auth),
@@ -210,7 +236,9 @@ export function RoutingDecisionExplorer() {
   const decisions = getItems(data);
 
   const providers = [
-    ...new Set(decisions.map((item) => item.selectedProviderId).filter(Boolean)),
+    ...new Set(
+      decisions.map((item) => item.selectedProviderId).filter(Boolean),
+    ),
   ];
 
   const reasons = [
@@ -230,8 +258,7 @@ export function RoutingDecisionExplorer() {
         decision.selectedProviderId === filters.providerId) &&
       (filters.strategy === "ALL" ||
         decision.routingStrategy === filters.strategy) &&
-      (filters.reason === "ALL" ||
-        decision.decisionReason === filters.reason)
+      (filters.reason === "ALL" || decision.decisionReason === filters.reason)
     );
   });
 
@@ -250,7 +277,8 @@ export function RoutingDecisionExplorer() {
             Routing Decision Explorer
           </h1>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            Inspect provider selection, routing strategies, and decision details.
+            Inspect provider selection, routing strategies, and decision
+            details.
           </p>
         </div>
         <div className="flex gap-2">
@@ -262,8 +290,14 @@ export function RoutingDecisionExplorer() {
             <FilterX className="h-4 w-4" />
             Clear
           </Button>
-          <Button variant="outline" disabled={!auth || isFetching} onClick={() => refetch()}>
-            <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
+          <Button
+            variant="outline"
+            disabled={!auth || isFetching}
+            onClick={() => refetch()}
+          >
+            <RefreshCw
+              className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`}
+            />
             Refresh
           </Button>
         </div>
@@ -282,7 +316,9 @@ export function RoutingDecisionExplorer() {
               <Input
                 aria-label="Filter payment ID"
                 value={filters.paymentId}
-                onChange={(event) => updateFilter("paymentId", event.target.value)}
+                onChange={(event) =>
+                  updateFilter("paymentId", event.target.value)
+                }
                 placeholder="Search payment ID"
                 className="pl-9"
               />
@@ -292,11 +328,15 @@ export function RoutingDecisionExplorer() {
               value={filters.providerId}
               onValueChange={(value) => updateFilter("providerId", value)}
             >
-              <SelectTrigger><SelectValue placeholder="Provider" /></SelectTrigger>
+              <SelectTrigger>
+                <SelectValue placeholder="Provider" />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="ALL">All Providers</SelectItem>
                 {providers.map((provider) => (
-                  <SelectItem key={provider} value={provider}>{provider}</SelectItem>
+                  <SelectItem key={provider} value={provider}>
+                    {provider}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -305,11 +345,15 @@ export function RoutingDecisionExplorer() {
               value={filters.strategy}
               onValueChange={(value) => updateFilter("strategy", value)}
             >
-              <SelectTrigger><SelectValue placeholder="Strategy" /></SelectTrigger>
+              <SelectTrigger>
+                <SelectValue placeholder="Strategy" />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="ALL">All Strategies</SelectItem>
                 {Object.entries(STRATEGIES).map(([value, label]) => (
-                  <SelectItem key={value} value={value}>{label}</SelectItem>
+                  <SelectItem key={value} value={value}>
+                    {label}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -318,7 +362,9 @@ export function RoutingDecisionExplorer() {
               value={filters.reason}
               onValueChange={(value) => updateFilter("reason", value)}
             >
-              <SelectTrigger><SelectValue placeholder="Reason" /></SelectTrigger>
+              <SelectTrigger>
+                <SelectValue placeholder="Reason" />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="ALL">All Reasons</SelectItem>
                 {reasons.map((reason) => (
@@ -337,7 +383,10 @@ export function RoutingDecisionExplorer() {
           ) : isPending ? (
             <div className="space-y-3">
               {[1, 2, 3].map((item) => (
-                <div key={item} className="h-12 animate-pulse rounded-lg bg-slate-100 dark:bg-slate-800" />
+                <div
+                  key={item}
+                  className="h-12 animate-pulse rounded-lg bg-slate-100 dark:bg-slate-800"
+                />
               ))}
             </div>
           ) : isError ? (
@@ -358,8 +407,19 @@ export function RoutingDecisionExplorer() {
               <table className="w-full text-left text-sm">
                 <thead className="border-b border-slate-200 text-xs text-slate-500 dark:border-slate-800">
                   <tr>
-                    {["Decision ID", "Payment", "Provider", "Strategy", "Reason", "Created", "Action"].map((heading) => (
-                      <th key={heading} className="whitespace-nowrap px-3 py-3 font-medium">
+                    {[
+                      "Decision ID",
+                      "Payment",
+                      "Provider",
+                      "Strategy",
+                      "Reason",
+                      "Created",
+                      "Action",
+                    ].map((heading) => (
+                      <th
+                        key={heading}
+                        className="whitespace-nowrap px-3 py-3 font-medium"
+                      >
                         {heading}
                       </th>
                     ))}
@@ -367,9 +427,14 @@ export function RoutingDecisionExplorer() {
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {filtered.map((decision, index) => (
-                    <tr key={decision.decisionId ?? decision.id ?? index} className="hover:bg-slate-50 dark:hover:bg-slate-900">
+                    <tr
+                      key={decision.decisionId ?? decision.id ?? index}
+                      className="hover:bg-slate-50 dark:hover:bg-slate-900"
+                    >
                       <td className="px-3 py-3 font-mono text-xs">
-                        {String(decision.decisionId ?? decision.id ?? "—").slice(-16)}
+                        {String(
+                          decision.decisionId ?? decision.id ?? "—",
+                        ).slice(-16)}
                       </td>
                       <td className="px-3 py-3 font-mono text-xs">
                         {String(decision.paymentId ?? "—").slice(-12)}
@@ -378,11 +443,19 @@ export function RoutingDecisionExplorer() {
                         {decision.selectedProviderId ?? "—"}
                       </td>
                       <td className="whitespace-nowrap px-3 py-3">
-                        {STRATEGIES[decision.routingStrategy] ?? decision.routingStrategy ?? "—"}
+                        {STRATEGIES[decision.routingStrategy] ??
+                          decision.routingStrategy ??
+                          "—"}
                       </td>
                       <td className="px-3 py-3">
-                        <Badge variant={REASON_VARIANTS[decision.decisionReason] ?? "secondary"}>
-                          {decision.decisionReason?.replaceAll("_", " ") ?? "Unknown"}
+                        <Badge
+                          variant={
+                            REASON_VARIANTS[decision.decisionReason] ??
+                            "secondary"
+                          }
+                        >
+                          {decision.decisionReason?.replaceAll("_", " ") ??
+                            "Unknown"}
                         </Badge>
                       </td>
                       <td className="whitespace-nowrap px-3 py-3 text-xs text-slate-500">

@@ -1,10 +1,4 @@
-
-import {
-  useEffect,
-  useState,
-  useMemo,
-  useCallback,
-} from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import {
   Activity,
   Bot,
@@ -16,7 +10,6 @@ import {
   ReceiptText,
   Server,
   Shield,
-  ShieldCheck,
   Sun,
   X,
   Settings,
@@ -35,12 +28,7 @@ import {
   PanelLeftOpen,
   Loader2,
 } from "lucide-react";
-import {
-  NavLink,
-  Outlet,
-  Link,
-  useLocation,
-} from "react-router-dom";
+import { NavLink, Outlet, Link, useLocation } from "react-router-dom";
 import { useAuth } from "../app/AuthContext.jsx";
 import { API_DOCS_URL } from "../lib/apiClient.js";
 import { cn } from "../lib/utils.js";
@@ -227,11 +215,7 @@ function getInitialSidebarState() {
   }
 }
 
-function NavigationItem({
-  item,
-  collapsed = false,
-  onNavigate,
-}) {
+function NavigationItem({ item, collapsed = false, onNavigate }) {
   const Icon = item.icon;
 
   return (
@@ -272,9 +256,7 @@ function NavigationItem({
 
           {!collapsed && (
             <>
-              <span className="min-w-0 flex-1 truncate">
-                {item.label}
-              </span>
+              <span className="min-w-0 flex-1 truncate">{item.label}</span>
 
               {isActive && (
                 <span
@@ -298,10 +280,7 @@ function Sidebar({
   visibleNav,
   auth,
 }) {
-  const closeMobile = useCallback(
-    () => setMobileOpen(false),
-    [setMobileOpen],
-  );
+  const closeMobile = useCallback(() => setMobileOpen(false), [setMobileOpen]);
 
   return (
     <>
@@ -330,9 +309,7 @@ function Sidebar({
           "lg:translate-x-0",
           collapsed ? "lg:w-19" : "lg:w-72",
           "w-72",
-          mobileOpen
-            ? "translate-x-0"
-            : "-translate-x-full",
+          mobileOpen ? "translate-x-0" : "-translate-x-full",
         )}
       >
         <div
@@ -340,9 +317,7 @@ function Sidebar({
             "flex h-20 shrink-0 items-center",
             "border-b border-slate-100 px-4",
             "dark:border-slate-800",
-            collapsed
-              ? "lg:justify-center lg:px-2"
-              : "justify-between",
+            collapsed ? "lg:justify-center lg:px-2" : "justify-between",
           )}
         >
           <Link
@@ -361,19 +336,15 @@ function Sidebar({
                 "rounded-xl bg-blue-600 text-white shadow-sm",
               )}
             >
-              <ShieldCheck
-                className="h-5 w-5"
-                strokeWidth={1.8}
+              <img
+                src="/pratyaya.svg"
+                alt=""
                 aria-hidden="true"
+                className="h-10 w-10 rounded-xl object-cover"
               />
             </span>
 
-            <span
-              className={cn(
-                "min-w-0",
-                collapsed && "lg:hidden",
-              )}
-            >
+            <span className={cn("min-w-0", collapsed && "lg:hidden")}>
               <span className="block truncate text-base font-bold tracking-tight text-slate-950 dark:text-white">
                 Pratyaya
               </span>
@@ -399,12 +370,7 @@ function Sidebar({
           </button>
         </div>
 
-        <div
-          className={cn(
-            "flex min-h-0 flex-1 flex-col",
-            "overflow-hidden",
-          )}
-        >
+        <div className={cn("flex min-h-0 flex-1 flex-col", "overflow-hidden")}>
           {!auth && (
             <div
               className={cn(
@@ -457,10 +423,7 @@ function Sidebar({
               if (items.length === 0) return null;
 
               return (
-                <div
-                  key={section.id}
-                  className="mb-5 last:mb-0"
-                >
+                <div key={section.id} className="mb-5 last:mb-0">
                   <div
                     className={cn(
                       "mb-2 px-3 text-[10px] font-semibold",
@@ -525,9 +488,7 @@ function Sidebar({
           <button
             type="button"
             onClick={() => setCollapsed((current) => !current)}
-            aria-label={
-              collapsed ? "Expand sidebar" : "Collapse sidebar"
-            }
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
             aria-expanded={!collapsed}
             className={cn(
               "mt-3 hidden h-10 w-full items-center gap-3",
@@ -541,15 +502,9 @@ function Sidebar({
             )}
           >
             {collapsed ? (
-              <PanelLeftOpen
-                className="h-4.5 w-4.5"
-                aria-hidden="true"
-              />
+              <PanelLeftOpen className="h-4.5 w-4.5" aria-hidden="true" />
             ) : (
-              <PanelLeftClose
-                className="h-4.5 w-4.5"
-                aria-hidden="true"
-              />
+              <PanelLeftClose className="h-4.5 w-4.5" aria-hidden="true" />
             )}
 
             {!collapsed && <span>Collapse sidebar</span>}
@@ -560,13 +515,7 @@ function Sidebar({
   );
 }
 
-function Header({
-  theme,
-  toggleTheme,
-  mobileOpen,
-  setMobileOpen,
-  auth,
-}) {
+function Header({ theme, toggleTheme, mobileOpen, setMobileOpen, auth }) {
   return (
     <header
       className={cn(
@@ -613,10 +562,11 @@ function Header({
               "focus-visible:ring-2 focus-visible:ring-blue-500",
             )}
           >
-            <ShieldCheck
-              className="h-5 w-5 shrink-0 text-blue-600 dark:text-blue-400"
-              strokeWidth={1.8}
+            <img
+              src="/pratyaya.svg"
+              alt=""
               aria-hidden="true"
+              className="h-8 w-8 shrink-0 rounded-lg object-cover"
             />
 
             <div className="min-w-0">
@@ -647,22 +597,14 @@ function Header({
             )}
           >
             API Docs
-
-            <ArrowUpRight
-              className="h-3.5 w-3.5"
-              aria-hidden="true"
-            />
+            <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
           </a>
 
           <button
             type="button"
             onClick={toggleTheme}
-            aria-label={`Switch to ${
-              theme === "dark" ? "light" : "dark"
-            } mode`}
-            title={`Switch to ${
-              theme === "dark" ? "light" : "dark"
-            } mode`}
+            aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+            title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
             className={cn(
               "inline-flex h-9 w-9 items-center justify-center",
               "rounded-lg border border-slate-200",
@@ -675,15 +617,9 @@ function Header({
             )}
           >
             {theme === "dark" ? (
-              <Sun
-                className="h-4.5 w-4.5"
-                aria-hidden="true"
-              />
+              <Sun className="h-4.5 w-4.5" aria-hidden="true" />
             ) : (
-              <Moon
-                className="h-4.5 w-4.5"
-                aria-hidden="true"
-              />
+              <Moon className="h-4.5 w-4.5" aria-hidden="true" />
             )}
           </button>
 
@@ -738,9 +674,7 @@ export default function Layout() {
 
   const [theme, setTheme] = useState(getInitialTheme);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [collapsed, setCollapsed] = useState(
-    getInitialSidebarState,
-  );
+  const [collapsed, setCollapsed] = useState(getInitialSidebarState);
 
   const permissions = auth?.permissions;
 
@@ -750,23 +684,16 @@ export default function Layout() {
     );
 
     return navigation.filter((item) =>
-      item.permissions.every((permission) =>
-        permissionSet.has(permission),
-      ),
+      item.permissions.every((permission) => permissionSet.has(permission)),
     );
   }, [permissions]);
 
   const toggleTheme = useCallback(() => {
-    setTheme((current) =>
-      current === "dark" ? "light" : "dark",
-    );
+    setTheme((current) => (current === "dark" ? "light" : "dark"));
   }, []);
 
   useEffect(() => {
-    document.documentElement.classList.toggle(
-      "dark",
-      theme === "dark",
-    );
+    document.documentElement.classList.toggle("dark", theme === "dark");
 
     document.documentElement.style.colorScheme = theme;
 
@@ -849,14 +776,11 @@ export default function Layout() {
             "text-blue-800 dark:text-blue-200",
           )}
         >
-          <FlaskConical
-            className="h-3.5 w-3.5 shrink-0"
-            aria-hidden="true"
-          />
+          <FlaskConical className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
 
           <span>
-            Simulation only — never enter real card, bank, or
-            personal payment data.
+            Simulation only — never enter real card, bank, or personal payment
+            data.
           </span>
         </div>
       </div>

@@ -1,4 +1,3 @@
-
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
@@ -46,9 +45,7 @@ function getTheme() {
   if (typeof window === "undefined") return "light";
 
   try {
-    return localStorage.getItem("pratyaya-theme") === "dark"
-      ? "dark"
-      : "light";
+    return localStorage.getItem("pratyaya-theme") === "dark" ? "dark" : "light";
   } catch {
     return "light";
   }
@@ -82,9 +79,7 @@ export function SettingsPage() {
   const role = auth?.membership?.role ?? "GUEST";
   const roleLabel = ROLE_LABELS[role] ?? role;
   const merchantName =
-    auth?.membership?.merchant?.name ??
-    auth?.merchant?.name ??
-    "Not assigned";
+    auth?.membership?.merchant?.name ?? auth?.merchant?.name ?? "Not assigned";
 
   useEffect(() => {
     const syncTheme = () => setTheme(getTheme());
@@ -102,10 +97,7 @@ export function SettingsPage() {
     const nextTheme = checked ? "dark" : "light";
 
     setTheme(nextTheme);
-    document.documentElement.classList.toggle(
-      "dark",
-      nextTheme === "dark",
-    );
+    document.documentElement.classList.toggle("dark", nextTheme === "dark");
     document.documentElement.style.colorScheme = nextTheme;
 
     try {
@@ -211,9 +203,7 @@ export function SettingsPage() {
 
                 <div className="min-w-0">
                   <p className="truncate text-sm font-semibold text-slate-950 dark:text-white">
-                    {auth.user?.displayName ??
-                      auth.user?.email ??
-                      "User"}
+                    {auth.user?.displayName ?? auth.user?.email ?? "User"}
                   </p>
                   <p className="truncate text-xs text-slate-500 dark:text-slate-400">
                     {auth.user?.email ?? "No email available"}
@@ -228,9 +218,7 @@ export function SettingsPage() {
                     aria-hidden="true"
                   />
                   <div>
-                    <p className="text-sm font-semibold">
-                      Guest Mode
-                    </p>
+                    <p className="text-sm font-semibold">Guest Mode</p>
                     <p className="text-xs text-slate-500">
                       Explore with a demo role.
                     </p>
@@ -272,9 +260,7 @@ export function SettingsPage() {
                   className="h-4 w-4 text-blue-600 dark:text-blue-400"
                   aria-hidden="true"
                 />
-                <h2 className="text-sm font-semibold">
-                  Switch Demo Role
-                </h2>
+                <h2 className="text-sm font-semibold">Switch Demo Role</h2>
               </div>
 
               <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
@@ -297,10 +283,7 @@ export function SettingsPage() {
                       onClick={() => handleSwitchRole(targetRole)}
                     >
                       {isCurrent && (
-                        <Check
-                          className="h-3.5 w-3.5"
-                          aria-hidden="true"
-                        />
+                        <Check className="h-3.5 w-3.5" aria-hidden="true" />
                       )}
                       {label}
                     </Button>
@@ -404,10 +387,9 @@ export function SettingsPage() {
 
         <CardContent className="space-y-5">
           <p className="text-sm leading-relaxed text-slate-600 dark:text-slate-300">
-            Pratyaya is a simulated payment reliability platform
-            designed to demonstrate secure financial workflows,
-            double-entry accounting, provider routing, and
-            transaction integrity.
+            Pratyaya is a simulated payment reliability platform designed to
+            demonstrate secure financial workflows, double-entry accounting,
+            provider routing, and transaction integrity.
           </p>
 
           <div className="grid gap-3 sm:grid-cols-3">
@@ -436,8 +418,8 @@ export function SettingsPage() {
               aria-hidden="true"
             />
             <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-300">
-              Simulation only. Never enter real card numbers,
-              banking credentials, or personal payment information.
+              Simulation only. Never enter real card numbers, banking
+              credentials, or personal payment information.
             </p>
           </div>
         </CardContent>

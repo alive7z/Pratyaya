@@ -1,11 +1,5 @@
-
 import { Component } from "react";
-import {
-  AlertTriangle,
-  ArrowLeft,
-  RefreshCw,
-  Home,
-} from "lucide-react";
+import { AlertTriangle, ArrowLeft, RefreshCw, Home } from "lucide-react";
 import { cn } from "../lib/utils.js";
 
 export class ErrorBoundary extends Component {
@@ -26,10 +20,7 @@ export class ErrorBoundary extends Component {
   }
 
   static getDerivedStateFromProps(props, state) {
-    if (
-      state.hasError &&
-      props.resetKey !== state.resetKey
-    ) {
+    if (state.hasError && props.resetKey !== state.resetKey) {
       return {
         hasError: false,
         error: null,
@@ -196,10 +187,7 @@ export class ErrorBoundary extends Component {
                 "dark:focus-visible:ring-offset-slate-950",
               )}
             >
-              <RefreshCw
-                className="h-4 w-4"
-                aria-hidden="true"
-              />
+              <RefreshCw className="h-4 w-4" aria-hidden="true" />
               Try again
             </button>
 
@@ -220,10 +208,7 @@ export class ErrorBoundary extends Component {
                 "dark:text-slate-200 dark:hover:bg-slate-800",
               )}
             >
-              <ArrowLeft
-                className="h-4 w-4"
-                aria-hidden="true"
-              />
+              <ArrowLeft className="h-4 w-4" aria-hidden="true" />
               Go back
             </button>
 
@@ -243,10 +228,7 @@ export class ErrorBoundary extends Component {
                 "dark:text-slate-200 dark:hover:bg-slate-800",
               )}
             >
-              <Home
-                className="h-4 w-4"
-                aria-hidden="true"
-              />
+              <Home className="h-4 w-4" aria-hidden="true" />
               Overview
             </a>
           </div>

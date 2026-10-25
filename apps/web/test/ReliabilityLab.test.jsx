@@ -41,7 +41,9 @@ describe("Reliability Lab access", () => {
 
     renderLab();
 
-    expect(await screen.findByRole("button", { name: "Run Test" })).toBeEnabled();
+    expect(
+      await screen.findByRole("button", { name: "Run Test" }),
+    ).toBeEnabled();
     expect(apiClient.get).toHaveBeenCalledWith("/api/v1/sandbox/faults");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });

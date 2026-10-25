@@ -1,9 +1,13 @@
-
 import { useQuery } from "@tanstack/react-query";
 import { RefreshCw, Server } from "lucide-react";
 import { useAuth } from "../../app/AuthContext.jsx";
 import { apiClient } from "../../lib/apiClient.js";
-import { Card, CardHeader, CardTitle, CardContent } from "../../components/ui/Card.jsx";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardContent,
+} from "../../components/ui/Card.jsx";
 import { Badge } from "../../components/ui/Badge.jsx";
 import { Button } from "../../components/ui/Button.jsx";
 
@@ -44,14 +48,7 @@ function Detail({ label, value }) {
 export function ProviderOverview() {
   const { auth } = useAuth();
 
-  const {
-    data,
-    isPending,
-    isError,
-    error,
-    isFetching,
-    refetch,
-  } = useQuery({
+  const { data, isPending, isError, error, isFetching, refetch } = useQuery({
     queryKey: ["providers", auth?.merchantId],
     queryFn: () => apiClient.get("/api/v1/routing/providers"),
     enabled: Boolean(auth),
@@ -128,9 +125,7 @@ export function ProviderOverview() {
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {providers.map((provider) => {
-            const availability = Number(
-              provider.healthMetrics?.availability,
-            );
+            const availability = Number(provider.healthMetrics?.availability);
             const hasAvailability =
               provider.healthMetrics?.availability != null &&
               Number.isFinite(availability);
@@ -191,9 +186,7 @@ export function ProviderOverview() {
                     />
                     <Metric
                       label="P50 Latency"
-                      value={milliseconds(
-                        provider.healthMetrics?.latencyP50Ms,
-                      )}
+                      value={milliseconds(provider.healthMetrics?.latencyP50Ms)}
                     />
                     <Metric
                       label="Error Rate"
@@ -206,9 +199,7 @@ export function ProviderOverview() {
                   </div>
 
                   <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-                    <span className="text-sm font-medium">
-                      Circuit Breaker
-                    </span>
+                    <span className="text-sm font-medium">Circuit Breaker</span>
                     <Badge
                       variant={
                         circuit?.state === "CLOSED"
@@ -241,16 +232,11 @@ export function ProviderOverview() {
                           : null
                       }
                     />
-                    <Detail
-                      label="Status"
-                      value={provider.status}
-                    />
+                    <Detail label="Status" value={provider.status} />
                     {circuit?.nextProbeAt && (
                       <Detail
                         label="Next Probe"
-                        value={new Date(
-                          circuit.nextProbeAt,
-                        ).toLocaleString()}
+                        value={new Date(circuit.nextProbeAt).toLocaleString()}
                       />
                     )}
                   </div>

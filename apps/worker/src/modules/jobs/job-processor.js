@@ -1,4 +1,3 @@
-
 import { createHmac } from "node:crypto";
 import {
   JOB_TYPES,
@@ -72,9 +71,7 @@ function requirePayload(job, ...fields) {
       job.payload[field] === null ||
       job.payload[field] === ""
     ) {
-      throw new Error(
-        `Job ${job.jobId} is missing required field: ${field}`,
-      );
+      throw new Error(`Job ${job.jobId} is missing required field: ${field}`);
     }
   }
 }
@@ -92,11 +89,7 @@ async function processPaymentCreatedJob(job) {
     }).session(session);
 
     if (!payment) {
-      throw new AppError(
-        404,
-        "PAYMENT_NOT_FOUND",
-        "Payment not found",
-      );
+      throw new AppError(404, "PAYMENT_NOT_FOUND", "Payment not found");
     }
 
     if (payment.status !== PAYMENT_STATUS.CREATED) {
@@ -232,12 +225,7 @@ async function processCaptureJob(job, orchestrator) {
 async function processRefundJob(job, orchestrator) {
   requirePayload(job, "paymentId");
 
-  const {
-    paymentId,
-    providerOperationId,
-    amountMinor,
-    reason,
-  } = job.payload;
+  const { paymentId, providerOperationId, amountMinor, reason } = job.payload;
 
   const auth = createWorkerAuth(job);
 
@@ -260,11 +248,7 @@ async function processRefundJob(job, orchestrator) {
   });
 }
 
-async function reconcileSingleOperation(
-  operation,
-  auth,
-  orchestrator,
-) {
+async function reconcileSingleOperation(operation, auth, orchestrator) {
   const providerOperationId = String(operation._id);
 
   switch (operation.type) {
@@ -287,9 +271,7 @@ async function reconcileSingleOperation(
       });
 
     default:
-      throw new Error(
-        `Unsupported provider operation type: ${operation.type}`,
-      );
+      throw new Error(`Unsupported provider operation type: ${operation.type}`);
   }
 }
 
@@ -297,9 +279,7 @@ async function processReconciliationJob(job, orchestrator) {
   const { paymentId, providerOperationId } = job.payload ?? {};
 
   if (!paymentId && !providerOperationId) {
-    throw new Error(
-      "Reconciliation requires paymentId or providerOperationId",
-    );
+    throw new Error("Reconciliation requires paymentId or providerOperationId");
   }
 
   const auth = createWorkerAuth(job);
@@ -307,10 +287,7 @@ async function processReconciliationJob(job, orchestrator) {
   const filter = {
     merchantId: job.merchantId,
     state: {
-      $in: [
-        OPERATION_STATES.UNKNOWN,
-        OPERATION_STATES.IN_FLIGHT,
-      ],
+      $in: [OPERATION_STATES.UNKNOWN, OPERATION_STATES.IN_FLIGHT],
     },
   };
 
@@ -420,10 +397,7 @@ async function processWebhookDispatchJob(job) {
     merchantId: String(job.merchantId),
     data: job.payload,
   });
-  const signature = createHmac(
-    "sha256",
-    workerConfig.webhookSigningSecret,
-  )
+  const signature = createHmac("sha256", workerConfig.webhookSigningSecret)
     .update(timestamp)
     .update(".")
     .update(body)

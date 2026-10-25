@@ -1,4 +1,3 @@
-
 import {
   createContext,
   useContext,
@@ -18,10 +17,7 @@ function normalizeAuth(data) {
   }
 
   const session =
-    data.data &&
-    typeof data.data === "object" &&
-    !data.user &&
-    !data.membership
+    data.data && typeof data.data === "object" && !data.user && !data.membership
       ? data.data
       : data;
 
@@ -72,20 +68,14 @@ export function AuthProvider({ children }) {
       const response = await authApi.me();
       const normalizedAuth = normalizeAuth(response?.data);
 
-      if (
-        mountedRef.current &&
-        requestVersion === authVersionRef.current
-      ) {
+      if (mountedRef.current && requestVersion === authVersionRef.current) {
         setAuthState(normalizedAuth);
         setLoading(false);
       }
 
       return normalizedAuth;
     } catch (error) {
-      if (
-        mountedRef.current &&
-        requestVersion === authVersionRef.current
-      ) {
+      if (mountedRef.current && requestVersion === authVersionRef.current) {
         setAuthState(null);
         setLoading(false);
       }
@@ -171,20 +161,14 @@ export function AuthProvider({ children }) {
     ],
   );
 
-  return (
-    <AuthContext.Provider value={value}>
-      {children}
-    </AuthContext.Provider>
-  );
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {
   const context = useContext(AuthContext);
 
   if (!context) {
-    throw new Error(
-      "useAuth must be used within an AuthProvider",
-    );
+    throw new Error("useAuth must be used within an AuthProvider");
   }
 
   return context;

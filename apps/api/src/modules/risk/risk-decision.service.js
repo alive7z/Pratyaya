@@ -1,4 +1,3 @@
-
 import mongoose from "mongoose";
 import { RISK_DECISION_SOURCE } from "@pratyaya/shared";
 import { AppError } from "../../lib/errors.js";
@@ -21,9 +20,7 @@ function toDecisionDto(decision) {
     ruleCodes: decision.ruleCodes ?? [],
     explanation: decision.explanation,
     source: decision.source,
-    reviewedBy: decision.reviewedBy
-      ? String(decision.reviewedBy)
-      : null,
+    reviewedBy: decision.reviewedBy ? String(decision.reviewedBy) : null,
     reviewedAt: decision.reviewedAt ?? null,
     createdAt: decision.createdAt,
     updatedAt: decision.updatedAt,
@@ -81,10 +78,7 @@ async function evaluateAndRecord(
 
   const { riskEngine } = await import("./risk-engine.service.js");
 
-  const result = await riskEngine.evaluatePayment(
-    merchantId,
-    paymentData,
-  );
+  const result = await riskEngine.evaluatePayment(merchantId, paymentData);
 
   const ruleCodes = (result.triggeredRules ?? [])
     .map((rule) => rule.ruleCode)
@@ -117,8 +111,7 @@ async function evaluateAndRecord(
             merchantId,
             paymentId,
             reference:
-              paymentData.reference ??
-              `PAY-${String(paymentId).slice(-8)}`,
+              paymentData.reference ?? `PAY-${String(paymentId).slice(-8)}`,
             score: result.score,
             severity: result.level,
             status: "OPEN",
@@ -181,11 +174,7 @@ async function listDecisions({ auth, query = {} }) {
 
   if (query.cursor) {
     if (!mongoose.isValidObjectId(query.cursor)) {
-      throw new AppError(
-        400,
-        "INVALID_CURSOR",
-        "Invalid pagination cursor",
-      );
+      throw new AppError(400, "INVALID_CURSOR", "Invalid pagination cursor");
     }
 
     const cursorRecord = await RiskDecision.findOne({
@@ -222,9 +211,7 @@ async function listDecisions({ auth, query = {} }) {
 
   return {
     items: items.map(toDecisionDto),
-    nextCursor: hasMore
-      ? String(items[items.length - 1]._id)
-      : null,
+    nextCursor: hasMore ? String(items[items.length - 1]._id) : null,
     hasMore,
   };
 }
@@ -293,12 +280,7 @@ async function listAlerts({ auth, query = {} }) {
   };
 }
 
-async function overrideDecision({
-  auth,
-  decisionId,
-  decision,
-  reviewedBy,
-}) {
+async function overrideDecision({ auth, decisionId, decision, reviewedBy }) {
   return runInTransaction(async (session) => {
     const existing = await RiskDecision.findOne({
       _id: decisionId,
@@ -331,10 +313,7 @@ async function overrideDecision({
         $set: {
           decision,
           source: "MANUAL",
-          reviewedBy:
-            reviewedBy ??
-            auth.user?._id ??
-            auth.userId,
+          reviewedBy: reviewedBy ?? auth.user?._id ?? auth.userId,
           reviewedAt: new Date(),
         },
       },

@@ -1,4 +1,3 @@
-
 import { cn } from "../../lib/utils.js";
 
 const buttonVariants = {
@@ -17,8 +16,7 @@ const buttonVariants = {
   ghost:
     "text-slate-700 hover:bg-slate-100 active:bg-slate-200 dark:text-slate-200 dark:hover:bg-slate-800",
 
-  link:
-    "text-blue-600 underline-offset-4 hover:underline dark:text-blue-400",
+  link: "text-blue-600 underline-offset-4 hover:underline dark:text-blue-400",
 };
 
 const buttonSizes = {
@@ -44,9 +42,7 @@ export function Button({
     ? variant
     : "default";
 
-  const resolvedSize = Object.hasOwn(buttonSizes, size)
-    ? size
-    : "default";
+  const resolvedSize = Object.hasOwn(buttonSizes, size) ? size : "default";
 
   const isDisabled = disabled || loading;
 

@@ -43,7 +43,9 @@ function authPayload(role, merchantName) {
 }
 
 function renderProfile(role, merchantName) {
-  vi.spyOn(authApi, "me").mockResolvedValue({ data: authPayload(role, merchantName) });
+  vi.spyOn(authApi, "me").mockResolvedValue({
+    data: authPayload(role, merchantName),
+  });
   vi.spyOn(authApi, "logout").mockResolvedValue({ loggedOut: true });
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: 0 } },
@@ -72,7 +74,7 @@ describe("UserProfile header component", () => {
     renderProfile("MERCHANT", "Northwind Commerce");
 
     await screen.findByText("Demo Merchant");
-    await screen.findByText(/Merchant • Northwind Commerce/);
+    await screen.findByText(/Merchant · Northwind Commerce/);
     expect(screen.getByText("DM")).toBeInTheDocument();
   });
 
@@ -80,14 +82,14 @@ describe("UserProfile header component", () => {
     renderProfile("ADMIN", "Platform");
 
     await screen.findByText("Demo Administrator");
-    await screen.findByText(/Administrator • Platform/);
+    await screen.findByText(/Administrator · Platform/);
   });
 
   it("opens the profile dropdown and lists Overview, Switch Demo Role, and Logout", async () => {
     renderProfile("MERCHANT", "Northwind Commerce");
     await screen.findByText("Demo Merchant");
 
-    const trigger = screen.getByLabelText("Account profile");
+    const trigger = screen.getByLabelText("Open account profile");
     await userEvent.click(trigger);
 
     await screen.findByText("Go to Overview");
@@ -99,7 +101,7 @@ describe("UserProfile header component", () => {
     renderProfile("MERCHANT", "Northwind Commerce");
     await screen.findByText("Demo Merchant");
 
-    const trigger = screen.getByLabelText("Account profile");
+    const trigger = screen.getByLabelText("Open account profile");
     await userEvent.click(trigger);
     await screen.findByText("Go to Overview");
 
@@ -111,12 +113,15 @@ describe("UserProfile header component", () => {
     renderProfile("MERCHANT", "Northwind Commerce");
     await screen.findByText("Demo Merchant");
 
-    const trigger = screen.getByLabelText("Account profile");
+    const trigger = screen.getByLabelText("Open account profile");
     await userEvent.click(trigger);
     await screen.findByText("Logout");
 
     await userEvent.click(screen.getByText("Logout"));
     expect(authApi.logout).toHaveBeenCalled();
-    expect(mockNavigate).toHaveBeenCalledWith("/login");
+    expect(mockNavigate).toHaveBeenCalledWith(
+      "/login",
+      expect.objectContaining({ replace: true }),
+    );
   });
 });

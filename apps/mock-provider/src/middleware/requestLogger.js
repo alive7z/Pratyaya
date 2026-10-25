@@ -1,4 +1,3 @@
-
 export function requestLogger(logger) {
   return function logRequest(req, res, next) {
     const startedAt = process.hrtime.bigint();

@@ -1,11 +1,6 @@
-
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   BookOpen,
@@ -70,9 +65,7 @@ function displayDate(value) {
 
   const date = new Date(value);
 
-  return Number.isNaN(date.getTime())
-    ? "—"
-    : date.toLocaleString();
+  return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString();
 }
 
 function Loading() {
@@ -104,9 +97,7 @@ function Failure({ error, onRetry }) {
         <AlertTriangle className="h-5 w-5 shrink-0" />
 
         <div>
-          <p className="font-semibold">
-            Ledger data is unavailable
-          </p>
+          <p className="font-semibold">Ledger data is unavailable</p>
           <p className="mt-1 text-sm">
             {unauthorized
               ? "Sign in or start a demo session to access ledger records."
@@ -148,9 +139,7 @@ function Metric({ label, value, icon: Icon }) {
   return (
     <div className={cardClass}>
       <div className="flex items-center justify-between gap-3">
-        <p className="text-sm text-slate-500 dark:text-slate-400">
-          {label}
-        </p>
+        <p className="text-sm text-slate-500 dark:text-slate-400">{label}</p>
         <Icon
           className="h-4 w-4 shrink-0 text-blue-600 dark:text-blue-400"
           aria-hidden="true"
@@ -229,9 +218,7 @@ export default function LedgerPage() {
         page: accountPage,
         limit: PAGE_SIZE,
       }),
-    enabled:
-      isAuthenticated &&
-      (tab === "Accounts" || tab === "Overview"),
+    enabled: isAuthenticated && (tab === "Accounts" || tab === "Overview"),
     staleTime: 15000,
   });
 
@@ -263,9 +250,7 @@ export default function LedgerPage() {
         limit: PAGE_SIZE,
         search: journalSearch,
       }),
-    enabled:
-      isAuthenticated &&
-      (tab === "Overview" || tab === "Journals"),
+    enabled: isAuthenticated && (tab === "Overview" || tab === "Journals"),
     staleTime: 15000,
   });
 
@@ -276,13 +261,7 @@ export default function LedgerPage() {
   });
 
   const accountEntries = useQuery({
-    queryKey: [
-      "ledger",
-      "account",
-      merchantId,
-      selectedAccountId,
-      "entries",
-    ],
+    queryKey: ["ledger", "account", merchantId, selectedAccountId, "entries"],
     queryFn: () =>
       ledgerApi.accountEntries(selectedAccountId, {
         limit: PAGE_SIZE,
@@ -293,9 +272,7 @@ export default function LedgerPage() {
   const reports = useQuery({
     queryKey: ["ledger", "integrity", merchantId, currency],
     queryFn: () => ledgerApi.integrityReports({ currency }),
-    enabled:
-      isAuthenticated &&
-      (tab === "Overview" || tab === "Integrity"),
+    enabled: isAuthenticated && (tab === "Overview" || tab === "Integrity"),
   });
 
   const reconciliation = useQuery({
@@ -382,8 +359,7 @@ export default function LedgerPage() {
           : null;
 
   const activeLoading =
-    (tab === "Overview" &&
-      (accounts.isPending || journals.isPending)) ||
+    (tab === "Overview" && (accounts.isPending || journals.isPending)) ||
     (tab === "Accounts" && accounts.isPending) ||
     (tab === "Journals" && journals.isPending);
 
@@ -396,8 +372,8 @@ export default function LedgerPage() {
             Ledger Explorer
           </h1>
           <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-600 dark:text-slate-400">
-            Explore immutable journals, account balances, integrity
-            checks, and reconciliation records.
+            Explore immutable journals, account balances, integrity checks, and
+            reconciliation records.
           </p>
         </div>
 
@@ -468,18 +444,14 @@ export default function LedgerPage() {
                 <Metric
                   label="Debit movements"
                   value={
-                    hasCompleteSummary
-                      ? money(totalDebits, currency)
-                      : "—"
+                    hasCompleteSummary ? money(totalDebits, currency) : "—"
                   }
                   icon={WalletCards}
                 />
                 <Metric
                   label="Credit movements"
                   value={
-                    hasCompleteSummary
-                      ? money(totalCredits, currency)
-                      : "—"
+                    hasCompleteSummary ? money(totalCredits, currency) : "—"
                   }
                   icon={Scale}
                 />
@@ -488,7 +460,7 @@ export default function LedgerPage() {
                   value={
                     reports.isPending
                       ? "Loading..."
-                      : latestReport?.status ?? "Not run"
+                      : (latestReport?.status ?? "Not run")
                   }
                   icon={
                     latestReport?.status === "PASS"
@@ -500,15 +472,13 @@ export default function LedgerPage() {
 
               {!hasCompleteSummary && !allAccounts.isPending && (
                 <p className="text-xs text-amber-700 dark:text-amber-400">
-                  Debit and credit totals are unavailable until the
-                  complete account summary can be retrieved.
+                  Debit and credit totals are unavailable until the complete
+                  account summary can be retrieved.
                 </p>
               )}
 
               <section className={cardClass}>
-                <h2 className="font-semibold">
-                  Recent financial activity
-                </h2>
+                <h2 className="font-semibold">Recent financial activity</h2>
 
                 {journalRows.length ? (
                   <JournalTable
@@ -612,9 +582,7 @@ export default function LedgerPage() {
                 <AccountDetail
                   account={accountDetail.data?.data}
                   entries={rowsOf(accountEntries)}
-                  pending={
-                    accountDetail.isPending || accountEntries.isPending
-                  }
+                  pending={accountDetail.isPending || accountEntries.isPending}
                   error={accountDetail.error || accountEntries.error}
                   onClose={() => setSelectedAccountId(null)}
                 />
@@ -643,9 +611,7 @@ export default function LedgerPage() {
                   <input
                     aria-label="Search journals"
                     value={searchInput}
-                    onChange={(event) =>
-                      setSearchInput(event.target.value)
-                    }
+                    onChange={(event) => setSearchInput(event.target.value)}
                     placeholder="Reference or source ID"
                     className={cn(inputClass, "min-w-0 w-48 sm:w-64")}
                   />
@@ -701,7 +667,6 @@ export default function LedgerPage() {
     </div>
   );
 }
-
 
 function JournalTable({ rows, onSelect }) {
   return (
@@ -769,18 +734,12 @@ function JournalTable({ rows, onSelect }) {
                   {journal.paymentId ?? journal.sourceId ?? "—"}
                 </td>
                 <td className="whitespace-nowrap px-3 py-3">
-                  {entries.length
-                    ? money(debit, journal.currency)
-                    : "—"}
+                  {entries.length ? money(debit, journal.currency) : "—"}
                 </td>
                 <td className="whitespace-nowrap px-3 py-3">
-                  {entries.length
-                    ? money(credit, journal.currency)
-                    : "—"}
+                  {entries.length ? money(credit, journal.currency) : "—"}
                 </td>
-                <td className="px-3 py-3">
-                  {journal.currency}
-                </td>
+                <td className="px-3 py-3">{journal.currency}</td>
                 <td className="whitespace-nowrap px-3 py-3 text-xs text-slate-500">
                   {displayDate(journal.postedAt)}
                 </td>
@@ -801,9 +760,7 @@ function JournalDetail({ journal, accounts, onClose }) {
           <p className="break-all font-mono text-xs text-blue-700 dark:text-blue-400">
             {journal.journalReference}
           </p>
-          <h3 className="mt-1 font-semibold">
-            Debit / credit breakdown
-          </h3>
+          <h3 className="mt-1 font-semibold">Debit / credit breakdown</h3>
           <p className="mt-1 break-all text-xs text-slate-500">
             Source: {journal.sourceType ?? "—"} ·{" "}
             {journal.paymentId ?? journal.sourceId ?? "—"}
@@ -836,32 +793,22 @@ function JournalDetail({ journal, accounts, onClose }) {
                   {account?.accountCode ?? entry.accountId}
                 </p>
               </div>
-              <span className="text-xs font-medium">
-                {entry.direction}
-              </span>
-              <strong>
-                {money(entry.amountMinor, journal.currency)}
-              </strong>
+              <span className="text-xs font-medium">{entry.direction}</span>
+              <strong>{money(entry.amountMinor, journal.currency)}</strong>
             </div>
           );
         })}
       </div>
 
       <p className="mt-4 text-xs leading-relaxed text-slate-500">
-        Posted journals are immutable. Corrections require linked
-        compensating journals.
+        Posted journals are immutable. Corrections require linked compensating
+        journals.
       </p>
     </div>
   );
 }
 
-function AccountDetail({
-  account,
-  entries,
-  pending,
-  error,
-  onClose,
-}) {
+function AccountDetail({ account, entries, pending, error, onClose }) {
   return (
     <div className="mt-5 rounded-xl border border-blue-200 bg-blue-50/60 p-5 dark:border-blue-900 dark:bg-blue-950/20">
       <div className="flex items-start justify-between gap-4">
@@ -898,22 +845,12 @@ function AccountDetail({
               {[
                 ["Code", account.accountCode],
                 ["Type", account.accountType],
-                [
-                  "Debit",
-                  money(account.debitMinor, account.currency),
-                ],
-                [
-                  "Net balance",
-                  money(account.netMinor, account.currency),
-                ],
+                ["Debit", money(account.debitMinor, account.currency)],
+                ["Net balance", money(account.netMinor, account.currency)],
               ].map(([label, value]) => (
                 <div key={label}>
-                  <dt className="text-xs text-slate-500">
-                    {label}
-                  </dt>
-                  <dd className="mt-1 break-all font-medium">
-                    {value ?? "—"}
-                  </dd>
+                  <dt className="text-xs text-slate-500">{label}</dt>
+                  <dd className="mt-1 break-all font-medium">{value ?? "—"}</dd>
                 </div>
               ))}
             </dl>
@@ -931,12 +868,7 @@ function AccountDetail({
                   </span>
                   <span>{entry.eventType}</span>
                   <span>{entry.direction}</span>
-                  <strong>
-                    {money(
-                      entry.amountMinor,
-                      account?.currency,
-                    )}
-                  </strong>
+                  <strong>{money(entry.amountMinor, account?.currency)}</strong>
                 </div>
               ))
             ) : (
@@ -964,11 +896,14 @@ function IntegrityPanel({
 
   return (
     <section className="space-y-4">
-      <div className={cn(cardClass, "flex flex-wrap items-center justify-between gap-4")}>
+      <div
+        className={cn(
+          cardClass,
+          "flex flex-wrap items-center justify-between gap-4",
+        )}
+      >
         <div>
-          <p className="eyebrow">
-            Pratyaya Ledger Integrity Guardian
-          </p>
+          <p className="eyebrow">Pratyaya Ledger Integrity Guardian</p>
           <h2 className="mt-2 text-xl font-bold">
             {latest?.status ?? "No verification run"}
           </h2>
@@ -985,14 +920,9 @@ function IntegrityPanel({
             className="btn-primary"
           >
             <RefreshCw
-              className={cn(
-                "h-4 w-4",
-                runCheck.isPending && "animate-spin",
-              )}
+              className={cn("h-4 w-4", runCheck.isPending && "animate-spin")}
             />
-            {runCheck.isPending
-              ? "Verifying..."
-              : "Run verification"}
+            {runCheck.isPending ? "Verifying..." : "Run verification"}
           </button>
         ) : (
           <p className="text-xs text-slate-500">
@@ -1002,10 +932,7 @@ function IntegrityPanel({
       </div>
 
       {runCheck.isError && (
-        <Failure
-          error={runCheck.error}
-          onRetry={() => runCheck.mutate()}
-        />
+        <Failure error={runCheck.error} onRetry={() => runCheck.mutate()} />
       )}
 
       {pending ? (
@@ -1039,9 +966,7 @@ function IntegrityPanel({
                 className="rounded-lg border border-slate-200 p-4 dark:border-slate-800"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-sm font-semibold">
-                    {check.checkName}
-                  </p>
+                  <p className="text-sm font-semibold">{check.checkName}</p>
                   <span
                     className={cn(
                       "rounded-full px-2.5 py-1 text-xs font-semibold",
@@ -1075,12 +1000,7 @@ function ReconciliationPanel({ query }) {
   if (query.isPending) return <Loading />;
 
   if (query.error) {
-    return (
-      <Failure
-        error={query.error}
-        onRetry={() => query.refetch()}
-      />
-    );
+    return <Failure error={query.error} onRetry={() => query.refetch()} />;
   }
 
   const rows = rowsOf(query);
@@ -1088,13 +1008,11 @@ function ReconciliationPanel({ query }) {
 
   return (
     <section className={cardClass}>
-      <h2 className="font-semibold">
-        Reconciliation workspace
-      </h2>
+      <h2 className="font-semibold">Reconciliation workspace</h2>
 
       <p className="mt-2 text-xs leading-relaxed text-amber-700 dark:text-amber-400">
-        Provider comparison records use synthetic fixtures until
-        simulator integration is enabled.
+        Provider comparison records use synthetic fixtures until simulator
+        integration is enabled.
       </p>
 
       <div className="mt-4 flex flex-wrap gap-2">
@@ -1116,38 +1034,28 @@ function ReconciliationPanel({ query }) {
               className="grid gap-4 rounded-xl border border-slate-200 p-4 text-sm dark:border-slate-800 sm:grid-cols-2 lg:grid-cols-4"
             >
               <div>
-                <p className="text-xs text-slate-500">
-                  Provider reference
-                </p>
+                <p className="text-xs text-slate-500">Provider reference</p>
                 <p className="mt-1 break-all font-mono text-xs">
                   {row.providerReference ?? "Missing"}
                 </p>
               </div>
               <div>
-                <p className="text-xs text-slate-500">
-                  Internal / external
-                </p>
+                <p className="text-xs text-slate-500">Internal / external</p>
                 <p className="mt-1">
                   {row.internalPaymentStatus ?? "—"} /{" "}
                   {row.externalProviderStatus ?? "—"}
                 </p>
               </div>
               <div>
-                <p className="text-xs text-slate-500">
-                  Expected / observed
-                </p>
+                <p className="text-xs text-slate-500">Expected / observed</p>
                 <p className="mt-1">
                   {money(row.expectedAmountMinor, row.currency)} /{" "}
                   {money(row.observedAmountMinor, row.currency)}
                 </p>
               </div>
               <div>
-                <p className="text-xs text-slate-500">
-                  Status
-                </p>
-                <p className="mt-1 font-semibold">
-                  {row.status}
-                </p>
+                <p className="text-xs text-slate-500">Status</p>
+                <p className="mt-1 font-semibold">{row.status}</p>
               </div>
             </div>
           ))}

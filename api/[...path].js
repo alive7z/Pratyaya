@@ -1,4 +1,3 @@
-
 const HOP_BY_HOP_HEADERS = new Set([
   "connection",
   "content-length",
@@ -91,7 +90,10 @@ function setResponseHeaders(upstream, res) {
   }
 
   for (const [name, value] of upstream.headers.entries()) {
-    if (excluded.has(name.toLowerCase()) || name.toLowerCase() === "set-cookie") {
+    if (
+      excluded.has(name.toLowerCase()) ||
+      name.toLowerCase() === "set-cookie"
+    ) {
       continue;
     }
 

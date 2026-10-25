@@ -4,6 +4,8 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import LedgerPage from "../src/pages/LedgerPage.jsx";
+import { AuthProvider } from "../src/app/AuthContext.jsx";
+import { authApi } from "../src/lib/apiClient.js";
 
 function response(data) {
   return new Response(
@@ -43,15 +45,29 @@ const journal = {
   ],
 };
 
-function renderPage() {
+function renderPage(role = "ADMIN") {
+  vi.spyOn(authApi, "me").mockResolvedValue({
+    data: {
+      user: { id: "user-ledger-test", displayName: "Ledger Tester" },
+      membership: {
+        role,
+        status: "ACTIVE",
+        merchant: { id: "merchant-ledger-test", name: "Ledger Test" },
+      },
+      permissions: ["ledger.read", "ledger.integrity.run"],
+      session: { isDemo: true },
+    },
+  });
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return render(
     <QueryClientProvider client={client}>
-      <MemoryRouter>
-        <LedgerPage />
-      </MemoryRouter>
+      <AuthProvider>
+        <MemoryRouter>
+          <LedgerPage />
+        </MemoryRouter>
+      </AuthProvider>
     </QueryClientProvider>,
   );
 }
@@ -59,6 +75,7 @@ function renderPage() {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe("Ledger Explorer", () => {
@@ -155,17 +172,19 @@ describe("Ledger Explorer", () => {
 
     await user.click(screen.getByRole("tab", { name: "Reconciliation" }));
     expect(await screen.findByText("provider-fixture-1")).toBeInTheDocument();
-    expect(screen.getByText(/trusted synthetic fixtures/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/synthetic fixtures until simulator integration/i),
+    ).toBeInTheDocument();
     expect(screen.getByText("MATCHED: 1")).toBeInTheDocument();
   });
 
-  it("shows a loading state while ledger queries are pending", () => {
+  it("shows a loading state while ledger queries are pending", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(() => new Promise(() => {})),
     );
-    renderPage();
-    expect(screen.getByLabelText("Loading ledger")).toBeInTheDocument();
+    renderPage("MERCHANT");
+    expect(await screen.findByLabelText("Loading ledger")).toBeInTheDocument();
   });
 
   it("shows an actionable error when ledger access is denied", async () => {

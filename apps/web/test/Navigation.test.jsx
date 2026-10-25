@@ -69,7 +69,9 @@ describe("role-based login navigation", () => {
   it.each(roles)(
     "navigates to Overview (/) instead of Ledger for %s",
     async (role, label, merchantName) => {
-      vi.spyOn(authApi, "demo").mockResolvedValue(authPayload(role, merchantName));
+      vi.spyOn(authApi, "demo").mockResolvedValue(
+        authPayload(role, merchantName),
+      );
 
       renderAuthPage();
       const user = userEvent.setup();
@@ -80,7 +82,10 @@ describe("role-based login navigation", () => {
 
       expect(authApi.demo).toHaveBeenCalledWith(role);
       // Root cause fix: every demo role must land on Overview, not Ledger.
-      expect(mockNavigate).toHaveBeenCalledWith("/");
+      expect(mockNavigate).toHaveBeenCalledWith(
+        "/",
+        expect.objectContaining({ replace: true }),
+      );
       expect(mockNavigate).not.toHaveBeenCalledWith("/ledger");
     },
   );

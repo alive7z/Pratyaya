@@ -1,4 +1,3 @@
-
 import { ArrowLeft, Home, SearchX } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 
@@ -17,11 +16,7 @@ export default function NotFoundPage() {
     <main className="flex min-h-[60vh] items-center justify-center px-4 py-12">
       <section className="w-full max-w-lg text-center">
         <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400">
-          <SearchX
-            className="h-6 w-6"
-            strokeWidth={1.8}
-            aria-hidden="true"
-          />
+          <SearchX className="h-6 w-6" strokeWidth={1.8} aria-hidden="true" />
         </div>
 
         <p className="mt-6 text-xs font-semibold uppercase tracking-wider text-blue-600 dark:text-blue-400">
@@ -33,9 +28,8 @@ export default function NotFoundPage() {
         </h1>
 
         <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-slate-600 dark:text-slate-400">
-          The page you're looking for doesn't exist or may have
-          been moved. You can return to the overview or go back
-          to your previous page.
+          The page you're looking for doesn't exist or may have been moved. You
+          can return to the overview or go back to your previous page.
         </p>
 
         <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
