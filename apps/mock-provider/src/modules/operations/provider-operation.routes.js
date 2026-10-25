@@ -1,4 +1,3 @@
-
 import express from "express";
 import { z } from "zod";
 import {
@@ -39,6 +38,17 @@ const metadataSchema = z
   )
   .optional();
 
+const simulationFaultSchema = z
+  .object({
+    type: z.enum(["timeout", "decline", "latency", "error"]),
+    enabled: z.literal(true),
+    delayMs: z.coerce.number().int().min(0).max(60000).optional(),
+    statusCode: z.coerce.number().int().min(400).max(599).optional(),
+    code: z.string().trim().max(64).optional(),
+    message: z.string().trim().max(240).optional(),
+  })
+  .strict();
+
 const baseOperationSchema = {
   clientOperationId: operationIdSchema,
   merchantId: merchantIdSchema,
@@ -58,6 +68,7 @@ const authorizationSchema = z
       })
       .strict(),
     description: z.string().trim().max(500).optional(),
+    simulationFault: simulationFaultSchema.optional(),
   })
   .strict();
 
@@ -100,13 +111,10 @@ const listQuerySchema = z
     limit: z.coerce.number().int().min(1).max(100).default(20),
   })
   .strict()
-  .refine(
-    (query) => !query.from || !query.to || query.from <= query.to,
-    {
-      message: "from must not be later than to",
-      path: ["from"],
-    },
-  );
+  .refine((query) => !query.from || !query.to || query.from <= query.to, {
+    message: "from must not be later than to",
+    path: ["from"],
+  });
 
 function asyncHandler(handler) {
   return (req, res, next) => {
@@ -126,6 +134,7 @@ function serializeOperation(operation, detailed = false) {
     amountMinor: operation.amountMinor?.toString() ?? null,
     currency: operation.currency,
     clientOperationId: operation.clientOperationId,
+    faultInjected: operation.faultInjected ?? null,
     createdAt: operation.createdAt,
     processingCompletedAt: operation.processingCompletedAt ?? null,
   };
@@ -135,7 +144,6 @@ function serializeOperation(operation, detailed = false) {
       merchantId: operation.merchantId,
       requestPayload: operation.requestPayload,
       responsePayload: operation.responsePayload ?? null,
-      faultInjected: operation.faultInjected ?? null,
       processingStartedAt: operation.processingStartedAt ?? null,
     });
   }
@@ -144,11 +152,7 @@ function serializeOperation(operation, detailed = false) {
 }
 
 function sendOperationResult(req, res, result) {
-  const statusCode = result.timeout
-    ? 202
-    : result.idempotent
-      ? 200
-      : 201;
+  const statusCode = result.timeout ? 202 : result.idempotent ? 200 : 201;
 
   return res.status(statusCode).json({
     data: {
@@ -168,7 +172,7 @@ function createOperationHandler(service) {
     const result = await service({
       body: req.validated.body,
       providerConfig: req.providerConfig,
-      isDemo: false,
+      isDemo: Boolean(req.validated.body.simulationFault),
     });
 
     return sendOperationResult(req, res, result);
