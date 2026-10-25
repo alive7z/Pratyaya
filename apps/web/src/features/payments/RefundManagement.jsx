@@ -1,11 +1,10 @@
-
 import { useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Plus, AlertTriangle, RefreshCw } from "lucide-react";
 import { useAuth } from "../../app/AuthContext.jsx";
 import { apiClient } from "../../lib/apiClient.js";
-import { formatMoney } from "../../lib/format.js";
+import { formatMoney, majorToMinorUnits } from "../../lib/format.js";
 import {
   Card,
   CardHeader,
@@ -80,9 +79,7 @@ function Metric({ label, value, description }) {
   return (
     <Card>
       <CardContent className="pt-5">
-        <p className="text-sm text-slate-500 dark:text-slate-400">
-          {label}
-        </p>
+        <p className="text-sm text-slate-500 dark:text-slate-400">{label}</p>
         <p className="mt-2 text-2xl font-bold">{value}</p>
         <p className="mt-1 text-xs text-slate-500">{description}</p>
       </CardContent>
@@ -104,10 +101,7 @@ export function RefundManagement() {
   const merchantId = auth?.merchantId ?? null;
   const enabled = Boolean(auth && paymentId);
 
-  const canRefund =
-    auth?.permissions?.includes("refunds.create") ||
-    auth?.permissions?.includes("payments.refund") ||
-    false;
+  const canRefund = auth?.permissions?.includes("payments.create") ?? false;
 
   const paymentQuery = useQuery({
     queryKey: ["payment", merchantId, paymentId],
@@ -135,14 +129,17 @@ export function RefundManagement() {
   const confirmedAvailable = captured > refunded ? captured - refunded : 0n;
   const available =
     confirmedAvailable > pending ? confirmedAvailable - pending : 0n;
+  const eligibleStatus = new Set([
+    "CAPTURED",
+    "REFUND_PENDING",
+    "PARTIALLY_REFUNDED",
+  ]).has(payment?.status);
 
   const mutation = useMutation({
     mutationFn: ({ data, key }) =>
-      apiClient.post(
-        `/api/v1/payments/${encodedId}/refunds`,
-        data,
-        { headers: { "Idempotency-Key": key } },
-      ),
+      apiClient.post(`/api/v1/payments/${encodedId}/refunds`, data, {
+        headers: { "Idempotency-Key": key },
+      }),
     onSuccess: async () => {
       idempotencyKey.current = null;
       setOpen(false);
@@ -185,10 +182,14 @@ export function RefundManagement() {
 
     if (mutation.isPending || !canRefund || !payment) return;
 
-    const amount = form.full ? available.toString() : form.amount;
+    const amount = form.full
+      ? available.toString()
+      : majorToMinorUnits(form.amount);
 
-    if (!/^[1-9]\d*$/.test(amount)) {
-      setError("Enter a valid positive refund amount.");
+    if (!amount) {
+      setError(
+        "Enter a valid positive refund amount with at most two decimal places.",
+      );
       return;
     }
 
@@ -205,7 +206,7 @@ export function RefundManagement() {
       data: {
         amountMinor: amount,
         currency: payment.currency,
-        reason: form.reason.trim(),
+        reason: form.reason.trim() || undefined,
       },
       key: idempotencyKey.current,
     });
@@ -287,11 +288,11 @@ export function RefundManagement() {
 
           {canRefund && (
             <Button
-              disabled={available <= 0n}
+              disabled={!eligibleStatus || available <= 0n}
               onClick={() => handleOpenChange(true)}
             >
               <Plus className="h-4 w-4" />
-              Request Refund
+              Create Refund
             </Button>
           )}
         </div>
@@ -319,8 +320,8 @@ export function RefundManagement() {
         <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/20">
           <AlertTriangle className="h-5 w-5 shrink-0 text-amber-600" />
           <p className="text-sm text-amber-800 dark:text-amber-300">
-            {money(pending, payment.currency)} is reserved for
-            pending or uncertain refunds.
+            {money(pending, payment.currency)} is reserved for pending or
+            uncertain refunds.
           </p>
         </div>
       )}
@@ -351,10 +352,15 @@ export function RefundManagement() {
                         {refund.id?.slice(-12) ?? "—"}
                       </td>
                       <td className="whitespace-nowrap px-3 py-3">
-                        {money(refund.amountMinor, refund.currency ?? payment.currency)}
+                        {money(
+                          refund.amountMinor,
+                          refund.currency ?? payment.currency,
+                        )}
                       </td>
                       <td className="px-3 py-3">
-                        <Badge variant={refundVariants[refund.status] ?? "secondary"}>
+                        <Badge
+                          variant={refundVariants[refund.status] ?? "secondary"}
+                        >
                           {refund.status}
                         </Badge>
                       </td>
@@ -382,7 +388,7 @@ export function RefundManagement() {
       <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Request Refund</DialogTitle>
+            <DialogTitle>Create Refund</DialogTitle>
             <DialogDescription>
               Available: {money(available, payment.currency)}
             </DialogDescription>
@@ -411,17 +417,20 @@ export function RefundManagement() {
 
             {!form.full && (
               <div className="space-y-2">
-                <Label htmlFor="refund-amount">Amount (minor units)</Label>
+                <Label htmlFor="refund-amount">Refund amount</Label>
                 <Input
                   id="refund-amount"
-                  inputMode="numeric"
+                  inputMode="decimal"
                   required
                   disabled={mutation.isPending}
                   value={form.amount}
                   onChange={(event) =>
-                    updateForm("amount", event.target.value.replace(/\D/g, ""))
+                    updateForm(
+                      "amount",
+                      event.target.value.replace(/[^\d.]/g, ""),
+                    )
                   }
-                  placeholder="1000"
+                  placeholder="25.00"
                 />
               </div>
             )}
@@ -452,7 +461,7 @@ export function RefundManagement() {
                 disabled={mutation.isPending || available <= 0n}
                 loading={mutation.isPending}
               >
-                Request Refund
+                Create Refund
               </Button>
             </DialogFooter>
           </form>
