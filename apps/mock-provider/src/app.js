@@ -1,4 +1,3 @@
-
 import express from "express";
 import helmet from "helmet";
 import pino from "pino";
@@ -41,7 +40,7 @@ async function checkDatabase(database) {
   }
 }
 
-function providerConfigMiddleware(providers) {
+function providerConfigMiddleware(providers, allowRequestFaults) {
   const providerMap = new Map(
     providers.map((provider) => [provider.providerId, provider]),
   );
@@ -55,18 +54,13 @@ function providerConfigMiddleware(providers) {
 
     if (candidates.length === 0) {
       return next(
-        new AppError(
-          400,
-          "PROVIDER_ID_REQUIRED",
-          "A provider ID is required",
-        ),
+        new AppError(400, "PROVIDER_ID_REQUIRED", "A provider ID is required"),
       );
     }
 
     if (
       candidates.some(
-        (value) =>
-          typeof value !== "string" || value !== candidates[0],
+        (value) => typeof value !== "string" || value !== candidates[0],
       )
     ) {
       return next(
@@ -82,24 +76,16 @@ function providerConfigMiddleware(providers) {
 
     if (!provider) {
       return next(
-        new AppError(
-          404,
-          "PROVIDER_NOT_FOUND",
-          "Provider not found",
-        ),
+        new AppError(404, "PROVIDER_NOT_FOUND", "Provider not found"),
       );
     }
 
-    req.providerConfig = provider;
+    req.providerConfig = { ...provider, allowRequestFaults };
     return next();
   };
 }
 
-export function createProviderApp({
-  database,
-  config,
-  logger = silentLogger,
-}) {
+export function createProviderApp({ database, config, logger = silentLogger }) {
   const app = express();
 
   app.disable("x-powered-by");
@@ -185,7 +171,10 @@ export function createProviderApp({
     });
   });
 
-  const resolveProvider = providerConfigMiddleware(config.providers);
+  const resolveProvider = providerConfigMiddleware(
+    config.providers,
+    config.nodeEnv !== "production",
+  );
 
   app.use(
     "/provider/:providerId",
