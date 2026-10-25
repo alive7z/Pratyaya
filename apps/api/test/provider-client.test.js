@@ -59,8 +59,8 @@ describe("provider client reliability", () => {
 
     expect(result.data.status).toBe("SUCCEEDED");
     expect(fetchFn).toHaveBeenCalledTimes(3);
-    const operationIds = fetchFn.mock.calls.map(([, request]) =>
-      JSON.parse(request.body).clientOperationId,
+    const operationIds = fetchFn.mock.calls.map(
+      ([, request]) => JSON.parse(request.body).clientOperationId,
     );
     expect(new Set(operationIds)).toEqual(
       new Set(["auth-stable-operation-id"]),
@@ -68,12 +68,13 @@ describe("provider client reliability", () => {
   });
 
   it("reports timeout only after bounded retries", async () => {
-    const fetchFn = vi.fn((_url, request) =>
-      new Promise((_resolve, reject) => {
-        request.signal.addEventListener("abort", () => {
-          reject(new DOMException("aborted", "AbortError"));
-        });
-      }),
+    const fetchFn = vi.fn(
+      (_url, request) =>
+        new Promise((_resolve, reject) => {
+          request.signal.addEventListener("abort", () => {
+            reject(new DOMException("aborted", "AbortError"));
+          });
+        }),
     );
 
     await expect(
