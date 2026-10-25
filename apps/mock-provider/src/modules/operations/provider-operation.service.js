@@ -1,4 +1,3 @@
-
 import { createHash, randomUUID } from "node:crypto";
 import {
   ProviderOperation,
@@ -14,12 +13,14 @@ const { RECEIVED, PROCESSING, SUCCEEDED, DECLINED, UNKNOWN_TO_CLIENT } =
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function hashPayload(payload) {
-  return createHash("sha256")
-    .update(JSON.stringify(payload))
-    .digest("hex");
+  return createHash("sha256").update(JSON.stringify(payload)).digest("hex");
 }
 
-function getFault(providerConfig) {
+function getFault(providerConfig, body) {
+  if (body?.simulationFault && providerConfig?.allowRequestFaults) {
+    return body.simulationFault;
+  }
+
   if (!providerConfig?.faults?.enabled) return null;
 
   return (
@@ -65,12 +66,7 @@ async function applyFault(fault) {
 }
 
 function getRequestPayload(type, body) {
-  const {
-    clientOperationId,
-    amountMinor,
-    currency,
-    metadata,
-  } = body;
+  const { clientOperationId, amountMinor, currency, metadata } = body;
 
   const payload = {
     clientOperationId,
@@ -149,20 +145,13 @@ async function findExisting({
   return existing;
 }
 
-async function validateParentOperation({
-  type,
-  body,
-  providerId,
-  session,
-}) {
+async function validateParentOperation({ type, body, providerId, session }) {
   if (type === AUTHORIZATION) return;
 
   const parentType = type === CAPTURE ? AUTHORIZATION : CAPTURE;
 
   const parentOperationId =
-    type === CAPTURE
-      ? body.authorizationOperationId
-      : body.captureOperationId;
+    type === CAPTURE ? body.authorizationOperationId : body.captureOperationId;
 
   const parent = await ProviderOperation.findOne({
     operationId: parentOperationId,
@@ -236,9 +225,7 @@ async function validateParentOperation({
   if (reservedAmount + requestedAmount > parentAmount) {
     throw new AppError(
       409,
-      type === CAPTURE
-        ? "CAPTURE_AMOUNT_EXCEEDED"
-        : "REFUND_AMOUNT_EXCEEDED",
+      type === CAPTURE ? "CAPTURE_AMOUNT_EXCEEDED" : "REFUND_AMOUNT_EXCEEDED",
       type === CAPTURE
         ? "Capture amount exceeds the remaining authorized amount"
         : "Refund amount exceeds the remaining captured amount",
@@ -358,7 +345,6 @@ async function createOperation({
       ],
       session ? { session } : {},
     );
-
   } catch (error) {
     if (error?.code !== 11000) throw error;
 
@@ -394,7 +380,7 @@ async function createOperation({
     session,
   );
 
-  const fault = getFault(providerConfig);
+  const fault = getFault(providerConfig, body);
   let faultResult;
 
   try {
@@ -487,12 +473,8 @@ export function createRefund(options) {
   });
 }
 
-export async function getOperation({
-  operationId,
-  providerId,
-  session,
-}) {
-  const operation = await ProviderOperation.findOne({
+export async function getOperation({ operationId, providerId, session }) {
+  let operation = await ProviderOperation.findOne({
     operationId,
     providerId,
   })
@@ -504,6 +486,32 @@ export async function getOperation({
       404,
       "OPERATION_NOT_FOUND",
       "Provider operation not found",
+    );
+  }
+
+  if (
+    operation.status === UNKNOWN_TO_CLIENT &&
+    operation.faultInjected === "timeout"
+  ) {
+    const providerReference = `PROV-${randomUUID().slice(0, 12).toUpperCase()}`;
+    operation = await updateOperation(
+      operationId,
+      {
+        status: SUCCEEDED,
+        statusReason: null,
+        responsePayload: createSuccessResponse(
+          operation.type,
+          {
+            ...operation.requestPayload,
+            amountMinor: operation.amountMinor.toString(),
+            currency: operation.currency,
+          },
+          providerReference,
+        ),
+        providerReference,
+        processingCompletedAt: new Date(),
+      },
+      session,
     );
   }
 
@@ -542,7 +550,4 @@ export async function listOperations({
   };
 }
 
-export {
-  PROVIDER_OPERATION_TYPES,
-  PROVIDER_OPERATION_STATUS,
-};
+export { PROVIDER_OPERATION_TYPES, PROVIDER_OPERATION_STATUS };
