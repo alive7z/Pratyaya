@@ -1,4 +1,3 @@
-
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
@@ -108,15 +107,9 @@ const envSchema = z.object({
   PROVIDER_PORT: z.coerce.number().int().min(1).max(65535).default(4100),
   PORT: z.coerce.number().int().min(1).max(65535).optional(),
 
-  PROVIDER_PUBLIC_URL: z
-    .string()
-    .url()
-    .default("http://127.0.0.1:4100"),
+  PROVIDER_PUBLIC_URL: z.string().url().default("http://127.0.0.1:4100"),
 
-  MOCK_PROVIDER_HMAC_SECRET: z
-    .string()
-    .min(32)
-    .default(DEV_PROVIDER_SECRET),
+  MOCK_PROVIDER_HMAC_SECRET: z.string().min(32).default(DEV_PROVIDER_SECRET),
 
   PROVIDER_MONGODB_URI: z
     .string()
@@ -126,12 +119,7 @@ const envSchema = z.object({
     )
     .min(1),
 
-  MONGODB_MAX_POOL_SIZE: z.coerce
-    .number()
-    .int()
-    .min(1)
-    .max(50)
-    .default(10),
+  MONGODB_MAX_POOL_SIZE: z.coerce.number().int().min(1).max(50).default(10),
 
   MONGODB_SERVER_SELECTION_TIMEOUT_MS: z.coerce
     .number()
@@ -139,17 +127,9 @@ const envSchema = z.object({
     .min(1000)
     .default(5000),
 
-  MONGODB_CONNECT_TIMEOUT_MS: z.coerce
-    .number()
-    .int()
-    .min(1000)
-    .default(10000),
+  MONGODB_CONNECT_TIMEOUT_MS: z.coerce.number().int().min(1000).default(10000),
 
-  MONGODB_SOCKET_TIMEOUT_MS: z.coerce
-    .number()
-    .int()
-    .min(1000)
-    .default(45000),
+  MONGODB_SOCKET_TIMEOUT_MS: z.coerce.number().int().min(1000).default(45000),
 
   MONGODB_AUTO_INDEX: booleanString("true"),
 
@@ -164,13 +144,22 @@ const envSchema = z.object({
 function validateProduction(env, providers) {
   if (env.NODE_ENV !== "production") return;
 
+  if (
+    env.PROVIDER_FAULTS.enabled ||
+    providers.some((provider) => provider.faults?.enabled)
+  ) {
+    throw new Error("Provider fault injection must be disabled in production");
+  }
+
   if (env.MOCK_PROVIDER_HMAC_SECRET === DEV_PROVIDER_SECRET) {
     throw new Error(
       "MOCK_PROVIDER_HMAC_SECRET must use a unique production secret",
     );
   }
 
-  if (providers.some((provider) => provider.hmacSecret === DEV_PROVIDER_SECRET)) {
+  if (
+    providers.some((provider) => provider.hmacSecret === DEV_PROVIDER_SECRET)
+  ) {
     throw new Error(
       "Provider HMAC secrets must not use development credentials in production",
     );
@@ -179,9 +168,7 @@ function validateProduction(env, providers) {
   const publicUrl = new URL(env.PROVIDER_PUBLIC_URL);
 
   if (publicUrl.protocol !== "https:") {
-    throw new Error(
-      "PROVIDER_PUBLIC_URL must use HTTPS in production",
-    );
+    throw new Error("PROVIDER_PUBLIC_URL must use HTTPS in production");
   }
 }
 
@@ -191,8 +178,7 @@ export function loadConfig() {
   if (!result.success) {
     const issues = result.error.issues
       .map(
-        (issue) =>
-          `${issue.path.join(".") || "environment"}: ${issue.message}`,
+        (issue) => `${issue.path.join(".") || "environment"}: ${issue.message}`,
       )
       .join("; ");
 
@@ -233,9 +219,7 @@ export function loadConfig() {
     faults: Object.freeze({
       enabled: env.PROVIDER_FAULTS.enabled,
       rules: Object.freeze(
-        env.PROVIDER_FAULTS.rules.map((rule) =>
-          Object.freeze({ ...rule }),
-        ),
+        env.PROVIDER_FAULTS.rules.map((rule) => Object.freeze({ ...rule })),
       ),
     }),
 
@@ -251,9 +235,7 @@ export function loadConfig() {
               (env.PROVIDER_FAULTS.enabled
                 ? env.PROVIDER_FAULTS.rules
                 : provider.faults.rules
-              ).map((rule) =>
-                Object.freeze({ ...rule }),
-              ),
+              ).map((rule) => Object.freeze({ ...rule })),
             ),
           }),
           ...(provider.healthConfig && {
