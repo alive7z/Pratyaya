@@ -21,6 +21,11 @@ export function createSandboxRouter({ config }) {
   const auth = authenticate({ config });
 
   const sandboxPermission = [auth, authorize(PERMISSIONS.SYSTEM_HEALTH_READ)];
+  const paymentReadPermission = [auth, authorize(PERMISSIONS.PAYMENTS_READ)];
+  const paymentCreatePermission = [
+    auth,
+    authorize(PERMISSIONS.PAYMENTS_CREATE),
+  ];
 
   const faultRuleSchema = z
     .object({
@@ -120,7 +125,7 @@ export function createSandboxRouter({ config }) {
 
   router.get(
     "/provider-operations",
-    ...sandboxPermission,
+    ...paymentReadPermission,
     validate({ query: querySchema }),
     async (req, res, next) => {
       try {
@@ -141,7 +146,7 @@ export function createSandboxRouter({ config }) {
 
   router.post(
     "/faults",
-    ...sandboxPermission,
+    ...paymentCreatePermission,
     requireCsrf,
     validate({ body: faultsSchema }),
     async (req, res, next) => {
@@ -162,9 +167,14 @@ export function createSandboxRouter({ config }) {
     },
   );
 
-  router.get("/faults", ...sandboxPermission, async (req, res, next) => {
+  router.get("/faults", ...paymentCreatePermission, async (req, res, next) => {
     try {
-      sendData(req, res, await getProviderFaults({ config }), 200);
+      sendData(
+        req,
+        res,
+        await getProviderFaults({ auth: req.auth, config }),
+        200,
+      );
     } catch (error) {
       next(error);
     }
@@ -172,11 +182,16 @@ export function createSandboxRouter({ config }) {
 
   router.delete(
     "/faults",
-    ...sandboxPermission,
+    ...paymentCreatePermission,
     requireCsrf,
     async (req, res, next) => {
       try {
-        sendData(req, res, await clearProviderFaults({ config }), 200);
+        sendData(
+          req,
+          res,
+          await clearProviderFaults({ auth: req.auth, config }),
+          200,
+        );
       } catch (error) {
         next(error);
       }
