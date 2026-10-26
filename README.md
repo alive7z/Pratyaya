@@ -167,7 +167,7 @@ Unit tests do not require Atlas. Database and integration commands do and must t
 
 ## Recruiter demo walkthrough
 
-Use the live application when a deployment URL is published, or follow these steps locally at [`http://localhost:5173/login`](http://localhost:5173/login). Each **Explore as** role changes the authenticated session and server-enforced permissions.
+Use the live application when a deployment URL is published, or follow these steps locally at [`https://pratyaya-sand.vercel.app/login`](https://pratyaya-sand.vercel.app/login). Each **Explore as** role changes the authenticated session and server-enforced permissions.
 
 1. Open `/login` and choose **Explore as Merchant**. Create a fictional payment and inspect its state and timeline.
 2. Retry the same logical request with the same idempotency key; show that it maps to one payment. Change the payload with that key; show the conflict.
