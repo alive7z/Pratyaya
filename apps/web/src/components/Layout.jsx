@@ -279,6 +279,7 @@ function Sidebar({
   setCollapsed,
   visibleNav,
   auth,
+  authLoading,
 }) {
   const closeMobile = useCallback(() => setMobileOpen(false), [setMobileOpen]);
 
@@ -371,7 +372,7 @@ function Sidebar({
         </div>
 
         <div className={cn("flex min-h-0 flex-1 flex-col", "overflow-hidden")}>
-          {!auth && (
+          {!auth && !authLoading && (
             <div
               className={cn(
                 "mx-3 mt-4 rounded-xl border border-dashed",
@@ -632,39 +633,15 @@ function Header({ theme, toggleTheme, mobileOpen, setMobileOpen, auth }) {
 
 function SessionLoading() {
   return (
-    <div
-      role="status"
-      aria-live="polite"
-      className={cn(
-        "flex min-h-dvh items-center justify-center",
-        "bg-slate-50 dark:bg-slate-950",
-      )}
-    >
-      <div className="flex flex-col items-center gap-4">
-        <div
-          className={cn(
-            "flex h-14 w-14 items-center justify-center",
-            "rounded-2xl bg-blue-50",
-            "dark:bg-blue-950/40",
-          )}
-        >
-          <Loader2
-            className="h-7 w-7 animate-spin text-blue-600 dark:text-blue-400"
-            aria-hidden="true"
-          />
-        </div>
-
-        <div className="text-center">
-          <p className="text-sm font-semibold text-slate-900 dark:text-white">
-            Loading Pratyaya
-          </p>
-
-          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-            Preparing your workspace...
-          </p>
-        </div>
-      </div>
-    </div>
+    <section className="rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950">
+      <h1 className="text-lg font-semibold">Connecting to your workspace</h1>
+      <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+        Your account details will appear once your session is verified.
+      </p>
+      <Link to="/" className="btn-secondary mt-4">
+        Explore the dashboard
+      </Link>
+    </section>
   );
 }
 
@@ -739,10 +716,6 @@ export default function Layout() {
     };
   }, [mobileOpen]);
 
-  if (authLoading) {
-    return <SessionLoading />;
-  }
-
   return (
     <div
       className={cn(
@@ -793,6 +766,7 @@ export default function Layout() {
           setCollapsed={setCollapsed}
           visibleNav={visibleNav}
           auth={auth}
+          authLoading={authLoading}
         />
 
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -813,8 +787,32 @@ export default function Layout() {
               "sm:px-6 sm:py-8 lg:px-8",
             )}
           >
+            {authLoading && (
+              <div
+                role="status"
+                aria-live="polite"
+                className="mb-6 flex items-center gap-3 rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-800 dark:border-blue-900/60 dark:bg-blue-950/40 dark:text-blue-200"
+              >
+                <Loader2
+                  className="h-4 w-4 shrink-0 animate-spin motion-reduce:animate-none"
+                  aria-hidden="true"
+                />
+                <span>
+                  Connecting to your workspace. You can explore the dashboard
+                  while we check your session.
+                </span>
+              </div>
+            )}
+
             <ErrorBoundary resetKey={location.pathname}>
-              <Outlet />
+              {authLoading &&
+              ![OVERVIEW_ROUTE, "/overview", "/health"].includes(
+                location.pathname,
+              ) ? (
+                <SessionLoading />
+              ) : (
+                <Outlet />
+              )}
             </ErrorBoundary>
           </main>
         </div>
