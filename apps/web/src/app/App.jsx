@@ -14,7 +14,7 @@ const AuthPage = lazy(() => import("../pages/AuthPage.jsx"));
 
 const LedgerPage = lazy(() => import("../pages/LedgerPage.jsx"));
 
-const ComingSoonPage = lazy(() => import("../pages/ComingSoonPage.jsx"));
+const AnalyticsPage = lazy(() => import("../pages/AnalyticsPage.jsx"));
 
 const NotFoundPage = lazy(() => import("../pages/NotFoundPage.jsx"));
 
@@ -399,7 +399,7 @@ export default function App() {
             path="analytics"
             element={
               <RouteBoundary>
-                <ComingSoonPage />
+                <AnalyticsPage />
               </RouteBoundary>
             }
           />

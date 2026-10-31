@@ -186,6 +186,25 @@ describe("Pratyaya web foundation", () => {
     ).toBe(true);
   });
 
+  it("opens the analytics dashboard instead of the coming soon page", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ data: [] })),
+    );
+
+    renderApp("/analytics");
+
+    expect(
+      await screen.findByRole("heading", { name: "Analytics", exact: true }),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByText("No payments in this view"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("Analytics is on the way"),
+    ).not.toBeInTheDocument();
+  });
+
   it("renders the simulation disclaimer and live backend status", async () => {
     vi.stubGlobal(
       "fetch",
